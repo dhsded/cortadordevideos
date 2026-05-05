@@ -6,20 +6,19 @@ import cv2
 from PIL import Image
 
 class UILogger(ProgressBarLogger):
-    def __init__(self, callback, *args, **kwargs):
+    def __init__(self, ui_callback, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.callback = callback
+        self.ui_callback = ui_callback
         self.last_percent = -1
         
-    def callback_write(self, **changes):
-        # changes pode ter bars (dict com progresso)
-        if 'bars' in changes:
-            for bar, stats in changes['bars'].items():
-                if stats['total'] > 0:
-                    percent = int((stats['index'] / stats['total']) * 100)
-                    if percent != self.last_percent:
-                        self.last_percent = percent
-                        self.callback(percent)
+    def bars_callback(self, bar, attr, value, old_value=None):
+        if attr == 'index':
+            stats = self.bars[bar]
+            if stats['total'] > 0:
+                percent = int((stats['index'] / stats['total']) * 100)
+                if percent != self.last_percent:
+                    self.last_percent = percent
+                    self.ui_callback(percent)
 
 def get_sharpness(img):
     """Calcula a Variância Laplaciana para medir o quão nítida/focada está a imagem."""

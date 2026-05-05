@@ -164,7 +164,12 @@ class App(ctk.CTk):
             img = Image.fromarray(frame_rgb)
             img.thumbnail((640, 360)) # Ajustar ao painel
             ctk_img = ctk.CTkImage(light_image=img, dark_image=img, size=(img.width, img.height))
-            self.after(0, self.preview_label.configure, {"image": ctk_img, "text": ""})
+            
+            def set_image():
+                self.preview_label.configure(image=ctk_img, text="")
+                self.preview_label.image = ctk_img # Mantém a referência para não sumir da tela
+                
+            self.after(0, set_image)
         except Exception:
             pass
 
