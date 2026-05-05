@@ -1,0 +1,8 @@
+opencv-python
+face_recognition
+moviepy
+customtkinter
+numpy<2
+scipy
+mediapipe
+pyinstaller
