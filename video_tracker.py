@@ -20,6 +20,7 @@ class VideoTracker:
         self.known_names = []
         self.known_histograms = {} # name -> histogram
         self.person_encodings = defaultdict(list) # name -> todos os encodings daquela pessoa
+        self.person_faces_rgb = {} # name -> imagem RGB do rosto (para a Galeria)
         
         # Estrutura: person_name -> list of (frame_index, center_x, center_y, box_size)
         self.tracking_data = defaultdict(list)
@@ -130,7 +131,8 @@ class VideoTracker:
                         if frame_callback:
                             frame_callback(rgb_frame)
                     else:
-                        face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)
+                        # num_jitters=2 para aumentar a precisão na extração de features
+                        face_encodings = face_recognition.face_encodings(rgb_frame, face_locations, num_jitters=2)
                         
                         preview_frame = frame.copy() if frame_callback else None
                         current_frame_faces = []
@@ -204,10 +206,11 @@ class VideoTracker:
                                 if current_hist is not None:
                                     self.known_histograms[name] = current_hist
                                 
-                                if new_person_callback:
-                                    face_crop = frame[top:bottom, left:right]
-                                    if face_crop.size > 0:
-                                        face_crop_rgb = cv2.cvtColor(face_crop, cv2.COLOR_BGR2RGB)
+                                face_crop = frame[top:bottom, left:right]
+                                if face_crop.size > 0:
+                                    face_crop_rgb = cv2.cvtColor(face_crop, cv2.COLOR_BGR2RGB)
+                                    self.person_faces_rgb[name] = face_crop_rgb
+                                    if new_person_callback:
                                         new_person_callback(name, face_crop_rgb)
                                 
                             self.tracking_data[name].append((frame_idx, center_x, center_y, box_size))
@@ -227,7 +230,7 @@ class VideoTracker:
         # PÓS-PROCESSAMENTO: Fusão Global
         self._merge_identities()
         
-        return self._generate_scenes()
+        return self._generate_scenes(), self.person_faces_rgb
         
     def _merge_identities(self):
         """
@@ -274,8 +277,8 @@ class VideoTracker:
                             if min_dist < min_distance:
                                 min_distance = min_dist
                                 
-                    # Régua super folgada (0.65) porque sabemos que eles nunca estiveram juntos!
-                    if min_distance < 0.65:
+                    # Régua extrema (0.75) porque sabemos que eles nunca estiveram juntos!
+                    if min_distance < 0.75:
                         merges.append((name_a, name_b))
                         merged.add(name_b)
                         person_frames[name_a].update(person_frames[name_b])

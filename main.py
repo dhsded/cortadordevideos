@@ -5,8 +5,11 @@ import os
 import sys
 import cv2
 from PIL import Image
+import logging
+
 from video_tracker import VideoTracker
 from video_cutter import VideoCutter
+from flow_editor_ui import FlowEditorUI
 
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
@@ -66,6 +69,9 @@ class App(ctk.CTk):
         self.output_btn.grid(row=3, column=0, padx=20, pady=10)
         self.output_label = ctk.CTkLabel(self.sidebar_frame, text="Pasta: Padrão ('output_cortes')", font=ctk.CTkFont(size=10), text_color="gray", wraplength=200)
         self.output_label.grid(row=4, column=0, padx=20, pady=(0, 10))
+        
+        self.flow_btn = ctk.CTkButton(self.sidebar_frame, text="📸 Editor Flow IA", fg_color="#E67E22", hover_color="#D35400", command=self.open_flow_editor)
+        self.flow_btn.grid(row=4, column=0, padx=20, pady=(40, 10), sticky="s")
         
         self.quality_label = ctk.CTkLabel(self.sidebar_frame, text="Qualidade de Exportação:")
         self.quality_label.grid(row=5, column=0, padx=20, pady=(10, 0), sticky="s")
@@ -129,6 +135,13 @@ class App(ctk.CTk):
             self.output_dir = directory
             self.output_label.configure(text=f"Pasta: {os.path.basename(directory)}")
             self.log(f"Pasta de saída definida: {directory}")
+
+    def open_flow_editor(self):
+        # Evitar múltiplas janelas abertas
+        if not hasattr(self, 'flow_window') or not self.flow_window.winfo_exists():
+            self.flow_window = FlowEditorUI(self)
+        else:
+            self.flow_window.focus()
 
     def select_video(self):
         filename = filedialog.askopenfilename(
@@ -202,7 +215,7 @@ class App(ctk.CTk):
                 self.log(f"Nova pessoa detectada: {name}")
                 self.add_face_gallery(name, face_rgb)
                 
-            scenes = tracker.process_video(
+            scenes, final_faces_rgb = tracker.process_video(
                 progress_callback=track_progress, 
                 frame_callback=self.update_preview,
                 new_person_callback=new_person_cb,
@@ -219,6 +232,16 @@ class App(ctk.CTk):
                 self.after(0, messagebox.showinfo, "Aviso", "Nenhuma pessoa detectada no vídeo.")
                 return
                 
+            # Limpar galeria antiga (que pode ter duplicados antes da Fusão Temporal)
+            for widget in self.gallery_frame.winfo_children():
+                widget.destroy()
+            
+            # Redesenhar apenas as identidades que sobreviveram à Fusão
+            self.after(0, self.gallery_title.configure, {"text": f"Rostos Detectados ({len(scenes)})"})
+            for final_name in scenes.keys():
+                if final_name in final_faces_rgb:
+                    self.add_face_gallery(final_name, final_faces_rgb[final_name])
+                
             total_scenes = sum(len(s) for s in scenes.values())
             self.log(f"Fase 1 concluída! {len(scenes)} pessoa(s) e {total_scenes} cena(s) identificadas.")
             self.log("Iniciando Fase 2: Recorte e Renderização...")
@@ -229,8 +252,11 @@ class App(ctk.CTk):
             cutter = VideoCutter(self.video_path, output_dir=final_output_dir)
             
             def cut_progress(current, total):
-                self.update_progress(current, total, "Fase 2: Cenas renderizadas")
-                self.log(f"Renderizando cena {current}/{total}...")
+                if total == 100:
+                    self.update_progress(current, total, "Fase 2: Renderizando vídeo")
+                else:
+                    self.update_progress(current, total, "Fase 2: Concluindo pessoa")
+                    self.log(f"Processamento de vídeo de pessoa concluído ({current}/{total}).")
                 
             selected_quality = self.quality_var.get()
             bitrate = self.quality_bitrate_map.get(selected_quality, "5000k")
@@ -282,6 +308,9 @@ class App(ctk.CTk):
         thread = threading.Thread(target=self.processing_thread, daemon=True)
         thread.start()
 
+import multiprocessing
+
 if __name__ == "__main__":
+    multiprocessing.freeze_support()
     app = App()
     app.mainloop()
