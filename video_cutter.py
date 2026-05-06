@@ -44,6 +44,7 @@ class VideoCutter:
         stats = {
             "video_render_time": 0.0,
             "image_export_time": 0.0,
+            "photo_extraction_time": 0.0,
             "processed_persons": 0,
             "photos_exported": 0
         }
@@ -67,11 +68,16 @@ class VideoCutter:
         ai_curator = None
         if mode in ["Ambos", "Apenas Imagens"]:
             ai_curator = AICurator(log_callback=log_callback)
+            
+        import threading
+        stats_lock = threading.Lock()
         
         with mp_pose.Pose(static_image_mode=False, min_detection_confidence=0.5) as pose:
-            for person_name, scenes in scenes_dict.items():
+            def process_person_task(person_name, scenes):
+                if cancel_event and cancel_event.is_set(): return
+                base_clip_local = VideoFileClip(self.video_path)
                 if cancel_event and cancel_event.is_set():
-                    break
+                    return
                     
                 person_dir = os.path.join(self.output_dir, person_name)
                 if not os.path.exists(person_dir):
@@ -90,7 +96,7 @@ class VideoCutter:
                     start_time = scene['start_frame'] / fps_original
                     end_time = scene['end_frame'] / fps_original
                     
-                    subclip = base_clip.subclipped(start_time, end_time)
+                    subclip = base_clip_local.subclipped(start_time, end_time)
                     
                     def make_crop_func(positions_smooth, start_f):
                         def crop_func(get_frame, t):
@@ -148,14 +154,19 @@ class VideoCutter:
                                     visible_arms = sum(1 for p in arms if landmarks[p.value].visibility > 0.5)
                                     pose_score = visible_arms * 250
                                 
-                                if ai_curator and ai_curator.is_ready:
+                                # Otimização de Performance: Só rodar a IA Curadora (CLIP) se o frame for pelo menos decente
+                                if ai_curator and ai_curator.is_ready and not cut_detected and sharpness > 100:
                                     similarity_score = ai_curator.calculate_similarity(cropped_img)
                                 
-                                final_score = sharpness + pose_score + similarity_score + full_body_bonus
+                                weighted_sharpness = sharpness * 5
+                                final_score = weighted_sharpness + pose_score + similarity_score + full_body_bonus
                                 
                                 if cut_detected:
                                     final_score -= 5000
                                     _log(f"[IA] Avaliação {time_or_frame}: Rejeitado (Pessoa cortada nas bordas).")
+                                elif sharpness < 100:
+                                    final_score -= 5000
+                                    _log(f"[IA] Avaliação {time_or_frame}: Rejeitado (Desfocado, Nitidez: {int(sharpness)}).")
                                 else:
                                     msg = f"[IA] Avaliação {time_or_frame}: Aprovado (Nitidez: {int(sharpness)}"
                                     if full_body_bonus > 0:
@@ -193,7 +204,7 @@ class VideoCutter:
                     person_clips.append(cropped_clip)
                     
                 if cancel_event and cancel_event.is_set():
-                    break
+                    return
                     
                 if person_clips:
                     final_clip = concatenate_videoclips(person_clips)
@@ -269,8 +280,9 @@ class VideoCutter:
                                     
                         valid_part_idx += 1
                         part_clip.close()
-                    
-                    stats["video_render_time"] += (time.time() - t_start_render)
+                    with stats_lock:
+                        stats["video_render_time"] += (time.time() - t_start_render)
+                        
                     final_clip.close()
                     for c in person_clips:
                         c.close()
@@ -295,13 +307,25 @@ class VideoCutter:
                                 Image.fromarray(raw_cropped).save(photo_filename, "JPEG", quality=100, subsampling=0)
                                 
                         cap.release()
-                        stats["photo_extraction_time"] += (time.time() - t_start_photo)
-                        stats["image_export_time"] += (time.time() - t_start_photo)
+                        with stats_lock:
+                            stats["photo_extraction_time"] += (time.time() - t_start_photo)
+                        with stats_lock:
+                            stats["image_export_time"] += (time.time() - t_start_photo)
                     
-                processed_persons += 1
+                with stats_lock:
+                    stats["processed_persons"] += 1
                 if progress_callback:
-                    progress_callback(processed_persons, total_persons)
+                    progress_callback(stats["processed_persons"], total_persons)
                     
-        base_clip.close()
-        stats["processed_persons"] = processed_persons
+            import concurrent.futures
+            import threading
+            
+            # stats_lock was already defined at top of cut_scenes
+            
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, (os.cpu_count() or 4) - 1)) as executor:
+                futures = [executor.submit(process_person_task, name, sc) for name, sc in scenes_dict.items()]
+                concurrent.futures.wait(futures)
+                
+            base_clip.close()
+            
         return stats

@@ -2,8 +2,46 @@ import cv2
 import face_recognition
 import numpy as np
 import os
+import threading
+from queue import Queue
 from collections import defaultdict
 from scipy.signal import savgol_filter
+
+class FileVideoStream:
+    def __init__(self, path, queue_size=256):
+        self.stream = cv2.VideoCapture(path)
+        self.stopped = False
+        self.Q = Queue(maxsize=queue_size)
+        
+    def start(self):
+        t = threading.Thread(target=self.update, args=())
+        t.daemon = True
+        t.start()
+        return self
+        
+    def update(self):
+        while True:
+            if self.stopped:
+                return
+            if not self.Q.full():
+                ret, frame = self.stream.read()
+                if not ret:
+                    self.stop()
+                    return
+                self.Q.put(frame)
+            else:
+                import time
+                time.sleep(0.01)
+                
+    def read(self):
+        return self.Q.get()
+        
+    def more(self):
+        return self.Q.qsize() > 0 or not self.stopped
+        
+    def stop(self):
+        self.stopped = True
+        self.stream.release()
 
 class VideoTracker:
     def __init__(self, video_path, sample_rate=1, tolerance=0.55):
@@ -76,18 +114,22 @@ class VideoTracker:
         import mediapipe.python.solutions.face_detection as mp_face_detection_module
         mp_face_detection = mp.solutions.face_detection if hasattr(mp, 'solutions') else mp_face_detection_module
         
-        cap = cv2.VideoCapture(self.video_path)
+        fvs = FileVideoStream(self.video_path, queue_size=256).start()
         frame_idx = 0
         
         last_frame_faces = [] # list of {'name': name, 'box': box}
         
         with mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5) as face_detection:
-            while True:
+            while fvs.more():
                 if cancel_event and cancel_event.is_set():
                     break
                     
-                ret, frame = cap.read()
-                if not ret:
+                try:
+                    frame = fvs.read()
+                except:
+                    break
+                    
+                if frame is None:
                     break
                     
                 if frame_idx % self.sample_rate == 0:
@@ -227,7 +269,7 @@ class VideoTracker:
                 if progress_callback and frame_idx % 30 == 0:
                     progress_callback(frame_idx, self.total_frames)
                     
-        cap.release()
+        fvs.stop()
         
         # PÓS-PROCESSAMENTO: Fusão Global
         self._merge_identities()

@@ -7,6 +7,7 @@ import cv2
 from PIL import Image
 import logging
 import time
+import winsound
 import matplotlib
 matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
@@ -40,6 +41,17 @@ class App(ctk.CTk):
             self.iconbitmap(resource_path("icon.ico"))
         except:
             pass
+            
+        import subprocess
+        
+        self.mode_var = ctk.StringVar(value="Ambos")
+        self.duration_var = ctk.StringVar(value="50")
+        self.photos_var = ctk.StringVar(value="5")
+        self.quality_var = ctk.StringVar(value="Boa")
+        self.hw_var = ctk.StringVar(value="CPU")
+        self.sound_var = ctk.StringVar(value="Soft Bell")
+        
+        self._auto_detect_hardware()
         
         self.video_path = None
         self.output_dir = None
@@ -78,41 +90,9 @@ class App(ctk.CTk):
         self.output_label = ctk.CTkLabel(self.sidebar_frame, text="Pasta: Padrão ('output_cortes')", font=ctk.CTkFont(size=10), text_color="gray", wraplength=200)
         self.output_label.grid(row=4, column=0, padx=20, pady=(0, 5))
         
-        # Area de configuracoes
-        self.settings_frame = ctk.CTkFrame(self.sidebar_frame, fg_color="transparent")
-        self.settings_frame.grid(row=6, column=0, padx=10, pady=5, sticky="s")
-        
-        self.mode_label = ctk.CTkLabel(self.settings_frame, text="Modo de Operação:")
-        self.mode_label.pack(anchor="w", pady=(5, 0))
-        self.mode_var = ctk.StringVar(value="Ambos")
-        self.mode_menu = ctk.CTkOptionMenu(self.settings_frame, variable=self.mode_var, values=["Ambos", "Apenas Vídeo", "Apenas Imagens"])
-        self.mode_menu.pack(fill="x", pady=(0, 5))
-        
-        self.duration_label = ctk.CTkLabel(self.settings_frame, text="Duração do Vídeo (s):")
-        self.duration_label.pack(anchor="w")
-        self.duration_var = ctk.StringVar(value="50")
-        self.duration_menu = ctk.CTkOptionMenu(self.settings_frame, variable=self.duration_var, values=["10", "15", "20", "30", "40", "50"])
-        self.duration_menu.pack(fill="x", pady=(0, 5))
-        
-        self.photos_label = ctk.CTkLabel(self.settings_frame, text="Quantidade de Fotos:")
-        self.photos_label.pack(anchor="w")
-        self.photos_var = ctk.StringVar(value="5")
-        self.photos_menu = ctk.CTkOptionMenu(self.settings_frame, variable=self.photos_var, values=["5", "10", "15", "20"])
-        self.photos_menu.pack(fill="x", pady=(0, 5))
-        
-        self.quality_label = ctk.CTkLabel(self.settings_frame, text="Qualidade:")
-        self.quality_label.pack(anchor="w")
-        self.quality_var = ctk.StringVar(value="Boa")
-        self.quality_menu = ctk.CTkOptionMenu(self.settings_frame, variable=self.quality_var, values=list(self.quality_bitrate_map.keys()))
-        self.quality_menu.pack(fill="x", pady=(0, 5))
-
-
-        
-        self.hw_label = ctk.CTkLabel(self.settings_frame, text="Processamento (Hardware):")
-        self.hw_label.pack(anchor="w")
-        self.hw_var = ctk.StringVar(value="CPU")
-        self.hw_menu = ctk.CTkOptionMenu(self.settings_frame, variable=self.hw_var, values=["CPU", "NVIDIA", "AMD", "Intel"])
-        self.hw_menu.pack(fill="x", pady=(0, 10))
+        # Botão de Configurações
+        self.settings_btn = ctk.CTkButton(self.sidebar_frame, text="⚙️ Configurações Gerais", command=self.open_settings_window, fg_color="#2A2A2A", hover_color="#3A3A3A", corner_radius=4, font=btn_font)
+        self.settings_btn.grid(row=6, column=0, padx=20, pady=(15, 5))
 
         self.flow_btn = ctk.CTkButton(self.sidebar_frame, text="📸 Editor Flow IA", fg_color="#2A2A2A", hover_color="#3A3A3A", corner_radius=4, command=self.open_flow_editor)
         self.flow_btn.grid(row=7, column=0, padx=20, pady=(10, 10), sticky="s")
@@ -176,9 +156,15 @@ class App(ctk.CTk):
         self.status_label = ctk.CTkLabel(self.main_frame, text="Pronto para iniciar.", font=ctk.CTkFont(size=12))
         self.status_label.grid(row=4, column=0, sticky="w", pady=(0, 5))
         
-        self.progress_bar = ctk.CTkProgressBar(self.main_frame)
-        self.progress_bar.grid(row=5, column=0, sticky="ew", pady=(0, 10))
+        self.progress_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent")
+        self.progress_frame.grid(row=5, column=0, sticky="ew", pady=(0, 10))
+        
+        self.progress_bar = ctk.CTkProgressBar(self.progress_frame)
+        self.progress_bar.pack(side="left", fill="x", expand=True)
         self.progress_bar.set(0)
+        
+        self.percent_label = ctk.CTkLabel(self.progress_frame, text="0%", font=ctk.CTkFont(size=12, weight="bold"))
+        self.percent_label.pack(side="right", padx=(10, 0))
         
         # Log
         self.log_textbox = ctk.CTkTextbox(self.main_frame, height=100, font=ctk.CTkFont(family="Consolas", size=11))
@@ -190,8 +176,15 @@ class App(ctk.CTk):
         self.after(0, self._log, message)
         
     def _log(self, message):
+        prefix = ""
+        if hasattr(self, 'process_start_time') and self.process_start_time is not None:
+            elapsed = int(time.time() - self.process_start_time)
+            m = elapsed // 60
+            s = elapsed % 60
+            prefix = f"[{m:02d}:{s:02d}] "
+            
         self.log_textbox.configure(state="normal")
-        self.log_textbox.insert("end", message + "\n")
+        self.log_textbox.insert("end", prefix + message + "\n")
         self.log_textbox.see("end")
         self.log_textbox.configure(state="disabled")
 
@@ -220,7 +213,8 @@ class App(ctk.CTk):
     def update_progress(self, current, total, text_prefix):
         percentage = current / total if total > 0 else 0
         self.after(0, self.progress_bar.set, percentage)
-        self.after(0, self.status_label.configure, {"text": f"{text_prefix} {current}/{total} ({int(percentage*100)}%)"})
+        self.after(0, self.percent_label.configure, {"text": f"{int(percentage*100)}%"})
+        self.after(0, self.status_label.configure, {"text": f"{text_prefix} {current}/{total}"})
         
     def update_preview(self, frame_rgb):
         try:
@@ -264,6 +258,8 @@ class App(ctk.CTk):
 
     def processing_thread(self):
         try:
+            self.process_start_time = time.time()
+            t_total_start = self.process_start_time
             self.cancel_event.clear()
             self.log("Iniciando Fase 1: Rastreamento de rostos...")
             self.after(0, self.status_label.configure, {"text": "Fase 1: Analisando rostos e movimentos..."})
@@ -356,8 +352,19 @@ class App(ctk.CTk):
                 self.after(0, messagebox.showwarning, "Cancelado", "A renderização foi interrompida. Alguns arquivos podem estar incompletos.")
                 return
 
-            self.log("Processamento concluído com sucesso!")
-            self.after(0, self.status_label.configure, {"text": "Processamento Concluído com Sucesso!"})
+            total_elapsed = time.time() - t_total_start
+            self.log(f"Processamento concluído com sucesso!")
+            self.log(f"Tempo total decorrido: {total_elapsed:.2f} segundos.")
+            
+            sound = self.sound_var.get()
+            if sound == "Soft Bell":
+                winsound.PlaySound(os.path.join("alertas", "soft_bell.wav"), winsound.SND_FILENAME | winsound.SND_ASYNC)
+            elif sound == "Success Chime":
+                winsound.PlaySound(os.path.join("alertas", "success_chime.wav"), winsound.SND_FILENAME | winsound.SND_ASYNC)
+            elif sound == "Arcade Level Up":
+                winsound.PlaySound(os.path.join("alertas", "arcade_level_up.wav"), winsound.SND_FILENAME | winsound.SND_ASYNC)
+            
+            self.after(0, self.status_label.configure, {"text": f"Concluído em {total_elapsed:.1f}s!"})
             self.after(0, self.progress_bar.set, 1)
             self.after(0, messagebox.showinfo, "Sucesso", f"Vídeos exportados na pasta:\n{final_output_dir}")
             
@@ -404,26 +411,100 @@ class App(ctk.CTk):
                 ax.text(bar.get_x() + bar.get_width()/2.0, yval, time_str, va='bottom', ha='center', color='white')
         
         for spine in ax.spines.values():
-            spine.set_color('white')
-            
-        fig.tight_layout()
+            ax.tick_params(colors='white')
+        ax.set_title("Tempos de Processamento (Fases)", color='white')
         
-        canvas = FigureCanvasTkAgg(fig, master=self.perf_canvas_frame)
-        canvas.draw()
-        canvas.get_tk_widget().pack(fill="both", expand=True)
+        self.perf_canvas = FigureCanvasTkAgg(fig, master=self.perf_canvas_frame)
+        self.perf_canvas.draw()
+        self.perf_canvas.get_tk_widget().pack(fill="both", expand=True)
         
         # Mudar o foco para a aba de desempenho
         self.tabview.set("Relatório de Desempenho")
+
+    def _auto_detect_hardware(self):
+        import subprocess
+        try:
+            out = subprocess.check_output("wmic path win32_VideoController get name", shell=True).decode().upper()
+            if "NVIDIA" in out:
+                self.hw_var.set("NVIDIA")
+            elif "AMD" in out or "RADEON" in out:
+                self.hw_var.set("AMD")
+            elif "INTEL" in out:
+                self.hw_var.set("Intel")
+            else:
+                self.hw_var.set("CPU")
+        except Exception:
+            self.hw_var.set("CPU")
+            
+    def open_settings_window(self):
+        settings_win = ctk.CTkToplevel(self)
+        settings_win.title("⚙️ Configurações Gerais")
+        settings_win.geometry("400x520")
+        settings_win.attributes("-topmost", True)
+        settings_win.configure(fg_color="#121212")
+        
+        main_frame = ctk.CTkFrame(settings_win, fg_color="#1C1C1C", corner_radius=8)
+        main_frame.pack(fill="both", expand=True, padx=20, pady=20)
+        
+        ctk.CTkLabel(main_frame, text="Modo de Operação:", font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold")).pack(anchor="w", padx=20, pady=(20, 5))
+        mode_menu = ctk.CTkOptionMenu(main_frame, variable=self.mode_var, values=["Ambos", "Apenas Vídeo", "Apenas Imagens"], command=self._on_mode_change)
+        mode_menu.pack(fill="x", padx=20, pady=(0, 15))
+        
+        # Frames dinâmicos
+        self.video_settings_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        self.video_settings_frame.pack(fill="x", padx=20, pady=0)
+        
+        self.bottom_settings_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        self.bottom_settings_frame.pack(fill="x", padx=20, pady=0)
+        
+        # Conteúdo do Video Frame
+        ctk.CTkLabel(self.video_settings_frame, text="Duração do Vídeo (s):").pack(anchor="w", pady=(0, 5))
+        ctk.CTkOptionMenu(self.video_settings_frame, variable=self.duration_var, values=["10", "15", "20", "30", "40", "50"]).pack(fill="x", pady=(0, 15))
+        
+        ctk.CTkLabel(self.video_settings_frame, text="Qualidade do Vídeo:").pack(anchor="w", pady=(0, 5))
+        ctk.CTkOptionMenu(self.video_settings_frame, variable=self.quality_var, values=list(self.quality_bitrate_map.keys())).pack(fill="x", pady=(0, 15))
+        
+        ctk.CTkLabel(self.video_settings_frame, text="Aceleração de Hardware:").pack(anchor="w", pady=(0, 5))
+        ctk.CTkOptionMenu(self.video_settings_frame, variable=self.hw_var, values=["CPU", "NVIDIA", "AMD", "Intel"]).pack(fill="x", pady=(0, 15))
+        
+        # Conteúdo Inferior
+        ctk.CTkLabel(self.bottom_settings_frame, text="Quantidade de Fotos Extraídas:").pack(anchor="w", pady=(0, 5))
+        ctk.CTkOptionMenu(self.bottom_settings_frame, variable=self.photos_var, values=["5", "10", "15", "20"]).pack(fill="x", pady=(0, 15))
+        
+        ctk.CTkLabel(self.bottom_settings_frame, text="Sinal Sonoro de Conclusão:").pack(anchor="w", pady=(0, 5))
+        sound_frame = ctk.CTkFrame(self.bottom_settings_frame, fg_color="transparent")
+        sound_frame.pack(fill="x", pady=(0, 15))
+        ctk.CTkOptionMenu(sound_frame, variable=self.sound_var, values=["Nenhum", "Soft Bell", "Success Chime", "Arcade Level Up"]).pack(side="left", fill="x", expand=True, padx=(0, 10))
+        ctk.CTkButton(sound_frame, text="🔊", width=40, command=self._play_sound_preview, fg_color="#2A2A2A", hover_color="#3A3A3A", corner_radius=4).pack(side="right")
+        
+        self._on_mode_change(self.mode_var.get())
+        
+    def _on_mode_change(self, value):
+        if hasattr(self, 'video_settings_frame') and self.video_settings_frame.winfo_exists():
+            if value == "Apenas Imagens":
+                self.video_settings_frame.pack_forget()
+            else:
+                self.video_settings_frame.pack(fill="x", padx=20, pady=0, before=self.bottom_settings_frame)
+                
+    def _play_sound_preview(self):
+        sound = self.sound_var.get()
+        import winsound
+        import os
+        if sound == "Soft Bell":
+            winsound.PlaySound(os.path.join("alertas", "soft_bell.wav"), winsound.SND_FILENAME | winsound.SND_ASYNC)
+        elif sound == "Success Chime":
+            winsound.PlaySound(os.path.join("alertas", "success_chime.wav"), winsound.SND_FILENAME | winsound.SND_ASYNC)
+        elif sound == "Arcade Level Up":
+            winsound.PlaySound(os.path.join("alertas", "arcade_level_up.wav"), winsound.SND_FILENAME | winsound.SND_ASYNC)
             
     def _reset_ui(self):
+        self.process_start_time = None
         self.start_btn.configure(state="normal")
         self.select_btn.configure(state="normal")
         self.output_btn.configure(state="normal")
-        self.quality_menu.configure(state="normal")
-        self.mode_menu.configure(state="normal")
-        self.duration_menu.configure(state="normal")
-        self.photos_menu.configure(state="normal")
-        self.preview_menu.configure(state="normal")
+        self.settings_btn.configure(state="normal")
+        if hasattr(self, 'preview_menu'):
+            self.preview_menu.configure(state="normal")
         self.cancel_btn.configure(state="disabled")
         self.status_label.configure(text="Pronto para novo processamento.")
         self.progress_bar.set(0)
@@ -432,11 +513,9 @@ class App(ctk.CTk):
         self.start_btn.configure(state="disabled")
         self.select_btn.configure(state="disabled")
         self.output_btn.configure(state="disabled")
-        self.quality_menu.configure(state="disabled")
-        self.mode_menu.configure(state="disabled")
-        self.duration_menu.configure(state="disabled")
-        self.photos_menu.configure(state="disabled")
-        self.preview_menu.configure(state="disabled")
+        self.settings_btn.configure(state="disabled")
+        if hasattr(self, 'preview_menu'):
+            self.preview_menu.configure(state="disabled")
         self.cancel_btn.configure(state="normal")
         
         self.log("--- Novo Processamento ---")
