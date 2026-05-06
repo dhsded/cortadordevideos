@@ -70,7 +70,7 @@ class VideoTracker:
         cv2.normalize(hist, hist, 0, 1, cv2.NORM_MINMAX)
         return hist
 
-    def process_video(self, progress_callback=None, frame_callback=None, new_person_callback=None, cancel_event=None):
+    def process_video(self, preview_mode="Total", progress_callback=None, frame_callback=None, new_person_callback=None, cancel_event=None):
         import mediapipe as mp
         # Importação explícita para o PyInstaller não se perder
         import mediapipe.python.solutions.face_detection as mp_face_detection_module
@@ -128,11 +128,12 @@ class VideoTracker:
                     
                     if not face_locations:
                         last_frame_faces = [] # Perdeu todo mundo
-                        if frame_callback:
-                            frame_callback(rgb_frame)
+                        if frame_callback and preview_mode != "Desligado":
+                            if preview_mode == "Total" or (preview_mode == "Metade" and frame_idx % (self.sample_rate * 2) == 0) or (preview_mode == "1/4" and frame_idx % (self.sample_rate * 4) == 0):
+                                frame_callback(rgb_frame)
                     else:
-                        # num_jitters=2 para aumentar a precisão na extração de features
-                        face_encodings = face_recognition.face_encodings(rgb_frame, face_locations, num_jitters=2)
+                        # Otimização de Performance: num_jitters=1 e model="small" reduz drasticamente o tempo
+                        face_encodings = face_recognition.face_encodings(rgb_frame, face_locations, num_jitters=1, model="small")
                         
                         preview_frame = frame.copy() if frame_callback else None
                         current_frame_faces = []
@@ -218,8 +219,9 @@ class VideoTracker:
                             
                         last_frame_faces = current_frame_faces
                             
-                        if frame_callback and preview_frame is not None:
-                            frame_callback(cv2.cvtColor(preview_frame, cv2.COLOR_BGR2RGB))
+                        if frame_callback and preview_frame is not None and preview_mode != "Desligado":
+                            if preview_mode == "Total" or (preview_mode == "Metade" and frame_idx % (self.sample_rate * 2) == 0) or (preview_mode == "1/4" and frame_idx % (self.sample_rate * 4) == 0):
+                                frame_callback(cv2.cvtColor(preview_frame, cv2.COLOR_BGR2RGB))
                 
                 frame_idx += 1
                 if progress_callback and frame_idx % 30 == 0:

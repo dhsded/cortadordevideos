@@ -6,7 +6,12 @@ import sys
 import cv2
 from PIL import Image
 import logging
-
+import time
+import matplotlib
+matplotlib.use("TkAgg")
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from batch_editor_ui import BatchEditorTab
 from video_tracker import VideoTracker
 from video_cutter import VideoCutter
 from flow_editor_ui import FlowEditorUI
@@ -49,52 +54,113 @@ class App(ctk.CTk):
         }
         
         # --- Layout Principal ---
+        self.configure(fg_color="#121212")
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
         
         # --- Sidebar (Esquerda) ---
-        self.sidebar_frame = ctk.CTkFrame(self, width=250, corner_radius=0)
+        self.sidebar_frame = ctk.CTkFrame(self, width=250, corner_radius=0, fg_color="#1C1C1C")
         self.sidebar_frame.grid(row=0, column=0, sticky="nsew")
         self.sidebar_frame.grid_rowconfigure(5, weight=1)
         
-        self.logo_label = ctk.CTkLabel(self.sidebar_frame, text="Auto-Cutter Pro", font=ctk.CTkFont(size=20, weight="bold"))
+        self.logo_label = ctk.CTkLabel(self.sidebar_frame, text="Auto-Cutter Pro", font=ctk.CTkFont(family="Segoe UI", size=20, weight="bold"))
         self.logo_label.grid(row=0, column=0, padx=20, pady=(20, 10))
         
-        self.select_btn = ctk.CTkButton(self.sidebar_frame, text="1. Selecionar Vídeo", command=self.select_video)
-        self.select_btn.grid(row=1, column=0, padx=20, pady=10)
-        self.file_label = ctk.CTkLabel(self.sidebar_frame, text="Nenhum vídeo selecionado", font=ctk.CTkFont(size=10), text_color="gray", wraplength=200)
-        self.file_label.grid(row=2, column=0, padx=20, pady=(0, 10))
+        btn_font = ctk.CTkFont(family="Segoe UI", size=12, weight="bold")
         
-        self.output_btn = ctk.CTkButton(self.sidebar_frame, text="2. Pasta de Saída", command=self.select_output_dir)
-        self.output_btn.grid(row=3, column=0, padx=20, pady=10)
+        self.select_btn = ctk.CTkButton(self.sidebar_frame, text="1. Selecionar Vídeo", command=self.select_video, fg_color="#2A2A2A", hover_color="#3A3A3A", corner_radius=4, font=btn_font)
+        self.select_btn.grid(row=1, column=0, padx=20, pady=5)
+        self.file_label = ctk.CTkLabel(self.sidebar_frame, text="Nenhum vídeo selecionado", font=ctk.CTkFont(family="Segoe UI", size=10), text_color="gray", wraplength=200)
+        self.file_label.grid(row=2, column=0, padx=20, pady=(0, 5))
+        
+        self.output_btn = ctk.CTkButton(self.sidebar_frame, text="2. Pasta de Saída", command=self.select_output_dir, fg_color="#2A2A2A", hover_color="#3A3A3A", corner_radius=4, font=btn_font)
+        self.output_btn.grid(row=3, column=0, padx=20, pady=5)
         self.output_label = ctk.CTkLabel(self.sidebar_frame, text="Pasta: Padrão ('output_cortes')", font=ctk.CTkFont(size=10), text_color="gray", wraplength=200)
-        self.output_label.grid(row=4, column=0, padx=20, pady=(0, 10))
+        self.output_label.grid(row=4, column=0, padx=20, pady=(0, 5))
         
-        self.flow_btn = ctk.CTkButton(self.sidebar_frame, text="📸 Editor Flow IA", fg_color="#E67E22", hover_color="#D35400", command=self.open_flow_editor)
-        self.flow_btn.grid(row=4, column=0, padx=20, pady=(40, 10), sticky="s")
+        # Area de configuracoes
+        self.settings_frame = ctk.CTkFrame(self.sidebar_frame, fg_color="transparent")
+        self.settings_frame.grid(row=6, column=0, padx=10, pady=5, sticky="s")
         
-        self.quality_label = ctk.CTkLabel(self.sidebar_frame, text="Qualidade de Exportação:")
-        self.quality_label.grid(row=5, column=0, padx=20, pady=(10, 0), sticky="s")
+        self.mode_label = ctk.CTkLabel(self.settings_frame, text="Modo de Operação:")
+        self.mode_label.pack(anchor="w", pady=(5, 0))
+        self.mode_var = ctk.StringVar(value="Ambos")
+        self.mode_menu = ctk.CTkOptionMenu(self.settings_frame, variable=self.mode_var, values=["Ambos", "Apenas Vídeo", "Apenas Imagens"])
+        self.mode_menu.pack(fill="x", pady=(0, 5))
+        
+        self.duration_label = ctk.CTkLabel(self.settings_frame, text="Duração do Vídeo (s):")
+        self.duration_label.pack(anchor="w")
+        self.duration_var = ctk.StringVar(value="50")
+        self.duration_menu = ctk.CTkOptionMenu(self.settings_frame, variable=self.duration_var, values=["10", "15", "20", "30", "40", "50"])
+        self.duration_menu.pack(fill="x", pady=(0, 5))
+        
+        self.photos_label = ctk.CTkLabel(self.settings_frame, text="Quantidade de Fotos:")
+        self.photos_label.pack(anchor="w")
+        self.photos_var = ctk.StringVar(value="5")
+        self.photos_menu = ctk.CTkOptionMenu(self.settings_frame, variable=self.photos_var, values=["5", "10", "15", "20"])
+        self.photos_menu.pack(fill="x", pady=(0, 5))
+        
+        self.quality_label = ctk.CTkLabel(self.settings_frame, text="Qualidade:")
+        self.quality_label.pack(anchor="w")
         self.quality_var = ctk.StringVar(value="Boa")
-        self.quality_menu = ctk.CTkOptionMenu(self.sidebar_frame, variable=self.quality_var, values=list(self.quality_bitrate_map.keys()))
-        self.quality_menu.grid(row=6, column=0, padx=20, pady=10, sticky="s")
+        self.quality_menu = ctk.CTkOptionMenu(self.settings_frame, variable=self.quality_var, values=list(self.quality_bitrate_map.keys()))
+        self.quality_menu.pack(fill="x", pady=(0, 5))
+
+
         
-        self.start_btn = ctk.CTkButton(self.sidebar_frame, text="Iniciar Processamento", command=self.start_processing, state="disabled", fg_color="green", hover_color="darkgreen")
-        self.start_btn.grid(row=7, column=0, padx=20, pady=10, sticky="s")
+        self.hw_label = ctk.CTkLabel(self.settings_frame, text="Processamento (Hardware):")
+        self.hw_label.pack(anchor="w")
+        self.hw_var = ctk.StringVar(value="CPU")
+        self.hw_menu = ctk.CTkOptionMenu(self.settings_frame, variable=self.hw_var, values=["CPU", "NVIDIA", "AMD", "Intel"])
+        self.hw_menu.pack(fill="x", pady=(0, 10))
+
+        self.flow_btn = ctk.CTkButton(self.sidebar_frame, text="📸 Editor Flow IA", fg_color="#2A2A2A", hover_color="#3A3A3A", corner_radius=4, command=self.open_flow_editor)
+        self.flow_btn.grid(row=7, column=0, padx=20, pady=(10, 10), sticky="s")
         
-        self.cancel_btn = ctk.CTkButton(self.sidebar_frame, text="Cancelar", command=self.cancel_processing, state="disabled", fg_color="red", hover_color="darkred")
-        self.cancel_btn.grid(row=8, column=0, padx=20, pady=(0, 20), sticky="s")
+
+        self.start_btn = ctk.CTkButton(self.sidebar_frame, text="Iniciar Processamento", command=self.start_processing, state="disabled", fg_color="#1F6AA5", hover_color="#144870", corner_radius=4, font=btn_font)
+        self.start_btn.grid(row=9, column=0, padx=20, pady=(5, 5), sticky="s")
+        
+        self.cancel_btn = ctk.CTkButton(self.sidebar_frame, text="Cancelar", command=self.cancel_processing, state="disabled", fg_color="#2A2A2A", hover_color="#3A3A3A", corner_radius=4)
+        self.cancel_btn.grid(row=10, column=0, padx=20, pady=(0, 15), sticky="s")
         
         # --- Área Principal (Centro/Direita) ---
-        self.main_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.main_frame.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
+        self.tabview = ctk.CTkTabview(self, corner_radius=4, fg_color="#181818")
+        self.tabview.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
+        self.tabview.add("Processamento")
+        self.tabview.add("Editor em Lote")
+        self.tabview.add("Relatório de Desempenho")
+        
+        self.main_frame = self.tabview.tab("Processamento")
         self.main_frame.grid_rowconfigure(1, weight=1) # preview
         self.main_frame.grid_rowconfigure(6, weight=1) # log
         self.main_frame.grid_columnconfigure(0, weight=1)
         
-        # Preview
-        self.preview_title = ctk.CTkLabel(self.main_frame, text="Visualização ao Vivo", font=ctk.CTkFont(size=14, weight="bold"))
-        self.preview_title.grid(row=0, column=0, sticky="w", pady=(0, 5))
+        self.perf_frame = self.tabview.tab("Relatório de Desempenho")
+        self.perf_frame.grid_rowconfigure(0, weight=1)
+        self.perf_frame.grid_columnconfigure(0, weight=1)
+        
+        self.perf_canvas_frame = ctk.CTkFrame(self.perf_frame, fg_color="transparent")
+        self.perf_canvas_frame.grid(row=0, column=0, sticky="nsew")
+        
+        self.batch_frame = self.tabview.tab("Editor em Lote")
+        self.batch_frame.grid_rowconfigure(0, weight=1)
+        self.batch_frame.grid_columnconfigure(0, weight=1)
+        self.batch_tab_ui = BatchEditorTab(self.batch_frame)
+        self.batch_tab_ui.pack(fill="both", expand=True)
+        
+        # Preview Header
+        self.preview_header_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent")
+        self.preview_header_frame.grid(row=0, column=0, sticky="ew", pady=(0, 5))
+        
+        self.preview_title = ctk.CTkLabel(self.preview_header_frame, text="Visualização ao Vivo", font=ctk.CTkFont(size=14, weight="bold"))
+        self.preview_title.pack(side="left")
+        
+        self.preview_var = ctk.StringVar(value="Metade")
+        self.preview_menu = ctk.CTkOptionMenu(self.preview_header_frame, variable=self.preview_var, values=["Total", "Metade", "1/4", "Desligado"], width=100)
+        self.preview_menu.pack(side="right")
+        
+        ctk.CTkLabel(self.preview_header_frame, text="Escala do Preview:").pack(side="right", padx=10)
         
         self.preview_label = ctk.CTkLabel(self.main_frame, text="Aguardando...", bg_color="black", corner_radius=10)
         self.preview_label.grid(row=1, column=0, sticky="nsew", pady=(0, 10))
@@ -137,11 +203,8 @@ class App(ctk.CTk):
             self.log(f"Pasta de saída definida: {directory}")
 
     def open_flow_editor(self):
-        # Evitar múltiplas janelas abertas
-        if not hasattr(self, 'flow_window') or not self.flow_window.winfo_exists():
-            self.flow_window = FlowEditorUI(self)
-        else:
-            self.flow_window.focus()
+        editor = FlowEditorUI(self)
+        editor.grab_set()
 
     def select_video(self):
         filename = filedialog.askopenfilename(
@@ -220,12 +283,15 @@ class App(ctk.CTk):
                 self.log(f"Nova pessoa detectada: {name}")
                 self.add_face_gallery(name, face_rgb)
                 
+            t_start_phase1 = time.time()
             scenes, final_faces_rgb = tracker.process_video(
+                preview_mode=self.preview_var.get(),
                 progress_callback=track_progress, 
                 frame_callback=self.update_preview,
                 new_person_callback=new_person_cb,
                 cancel_event=self.cancel_event
             )
+            time_phase1 = time.time() - t_start_phase1
             
             if self.cancel_event.is_set():
                 self.log("Processamento cancelado pelo usuário durante o rastreamento.")
@@ -268,14 +334,22 @@ class App(ctk.CTk):
             
             self.log(f"Qualidade de renderização: {selected_quality} ({bitrate})")
             
-            cutter.cut_scenes(
+            stats = cutter.cut_scenes(
                 scenes, 
                 tracker.fps, 
                 bitrate=bitrate, 
+                mode=self.mode_var.get(),
+                max_duration=float(self.duration_var.get()),
+                num_photos=int(self.photos_var.get()),
+                hw_accel=self.hw_var.get(),
+                preview_mode=self.preview_var.get(),
                 progress_callback=cut_progress, 
                 frame_callback=self.update_preview,
                 cancel_event=self.cancel_event
             )
+            stats["tracking_time"] = time_phase1
+            
+            self.after(0, self.plot_performance_chart, stats)
             
             if self.cancel_event.is_set():
                 self.log("Processamento cancelado pelo usuário durante a renderização.")
@@ -293,11 +367,63 @@ class App(ctk.CTk):
         finally:
             self.after(0, self._reset_ui)
             
+    def plot_performance_chart(self, stats):
+        for widget in self.perf_canvas_frame.winfo_children():
+            widget.destroy()
+            
+        fig, ax = plt.subplots(figsize=(6, 4), facecolor="#2b2b2b")
+        ax.set_facecolor("#2b2b2b")
+        
+        mode = self.mode_var.get()
+        
+        if mode == "Apenas Imagens":
+            labels = ['Rastreamento IA', 'Análise e Extração IA']
+            times = [stats.get("tracking_time", 0), stats.get("video_render_time", 0) + stats.get("image_export_time", 0)]
+            colors = ['#3498db', '#9b59b6']
+        else:
+            labels = ['Rastreamento IA', 'Renderização MP4', 'Exportação Fotos']
+            times = [stats.get("tracking_time", 0), stats.get("video_render_time", 0), stats.get("image_export_time", 0)]
+            colors = ['#3498db', '#e74c3c', '#2ecc71']
+        
+        bars = ax.bar(labels, times, color=colors)
+        ax.set_ylabel('Tempo (Segundos)', color='white')
+        
+        total_seconds = sum(times)
+        total_mins = int(total_seconds // 60)
+        total_secs = int(total_seconds % 60)
+        
+        ax.set_title(f'Desempenho Total de Processamento: {total_mins}m {total_secs}s\nPessoas Processadas: {stats.get("processed_persons", 0)} | Fotos: {stats.get("photos_exported", 0)}', color='white')
+        ax.tick_params(colors='white')
+        
+        for bar in bars:
+            yval = bar.get_height()
+            if yval > 0:
+                m = int(yval // 60)
+                s = int(yval % 60)
+                time_str = f"{int(yval)}s\n({m}m {s}s)" if m > 0 else f"{int(yval)}s"
+                ax.text(bar.get_x() + bar.get_width()/2.0, yval, time_str, va='bottom', ha='center', color='white')
+        
+        for spine in ax.spines.values():
+            spine.set_color('white')
+            
+        fig.tight_layout()
+        
+        canvas = FigureCanvasTkAgg(fig, master=self.perf_canvas_frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill="both", expand=True)
+        
+        # Mudar o foco para a aba de desempenho
+        self.tabview.set("Relatório de Desempenho")
+            
     def _reset_ui(self):
         self.start_btn.configure(state="normal")
         self.select_btn.configure(state="normal")
         self.output_btn.configure(state="normal")
         self.quality_menu.configure(state="normal")
+        self.mode_menu.configure(state="normal")
+        self.duration_menu.configure(state="normal")
+        self.photos_menu.configure(state="normal")
+        self.preview_menu.configure(state="normal")
         self.cancel_btn.configure(state="disabled")
         self.status_label.configure(text="Pronto para novo processamento.")
         self.progress_bar.set(0)
@@ -307,6 +433,10 @@ class App(ctk.CTk):
         self.select_btn.configure(state="disabled")
         self.output_btn.configure(state="disabled")
         self.quality_menu.configure(state="disabled")
+        self.mode_menu.configure(state="disabled")
+        self.duration_menu.configure(state="disabled")
+        self.photos_menu.configure(state="disabled")
+        self.preview_menu.configure(state="disabled")
         self.cancel_btn.configure(state="normal")
         
         self.log("--- Novo Processamento ---")
