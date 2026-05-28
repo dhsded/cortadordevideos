@@ -36,7 +36,7 @@ class VideoCutter:
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
             
-    def cut_scenes(self, scenes_dict, fps_original, bitrate="5000k", mode="Ambos", max_duration=50.0, num_photos=5, hw_accel="CPU", preview_mode="Total", progress_callback=None, frame_callback=None, cancel_event=None, log_callback=None):
+    def cut_scenes(self, scenes_dict, fps_original, bitrate="5000k", mode="Ambos", max_duration=50.0, min_duration=8.0, num_photos=5, hw_accel="CPU", preview_mode="Total", progress_callback=None, frame_callback=None, cancel_event=None, log_callback=None):
         def _log(msg):
             if log_callback:
                 log_callback(msg)
@@ -95,6 +95,8 @@ class VideoCutter:
                         
                     start_time = scene['start_frame'] / fps_original
                     end_time = scene['end_frame'] / fps_original
+                    scene_dur = end_time - start_time
+                    _log(f"[{person_name}] Cena {idx+1}/{len(scenes)}: {start_time:.1f}s -> {end_time:.1f}s ({scene_dur:.1f}s)")
                     
                     subclip = base_clip_local.subclipped(start_time, end_time)
                     
@@ -207,6 +209,7 @@ class VideoCutter:
                     return
                     
                 if person_clips:
+                    _log(f"[{person_name}] Concatenando {len(person_clips)} cena(s)...")
                     final_clip = concatenate_videoclips(person_clips)
                     
                     # CHUNKING (Divisão Automática baseada no max_duration)
@@ -228,9 +231,17 @@ class VideoCutter:
                             
                         part_clip = final_clip.subclipped(st, et)
                         
-                        # Eliminar pedaços com menos de 5 segundos
-                        if part_clip.duration < 5.0:
-                            continue
+                        # Se o vídeo tiver menos que min_duration, aplicar câmera lenta para atingir o alvo
+                        if part_clip.duration < min_duration:
+                            if part_clip.duration <= 0.5:
+                                _log(f"[{person_name}] Parte {valid_part_idx} ignorada (muito curta: {part_clip.duration:.1f}s).")
+                                continue
+                            import moviepy.video.fx as vfx
+                            factor = part_clip.duration / min_duration
+                            _log(f"[{person_name}] Video curto ({part_clip.duration:.1f}s) -> Aplicando camera lenta ({factor:.2f}x) para {min_duration:.0f}s.")
+                            part_clip = part_clip.with_effects([vfx.MultiplySpeed(factor)]).without_audio()
+                        
+                        _log(f"[{person_name}] Renderizando parte {valid_part_idx} ({part_clip.duration:.1f}s)...")
                             
                         if total_parts > 1:
                             output_filename = os.path.join(person_dir, f"{person_name}_Parte{valid_part_idx}.mp4")
@@ -280,6 +291,7 @@ class VideoCutter:
                                     
                         valid_part_idx += 1
                         part_clip.close()
+                    _log(f"[{person_name}] Renderizacao concluida! {valid_part_idx - 1} arquivo(s) gerado(s).")
                     with stats_lock:
                         stats["video_render_time"] += (time.time() - t_start_render)
                         

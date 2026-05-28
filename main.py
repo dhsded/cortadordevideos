@@ -46,6 +46,7 @@ class App(ctk.CTk):
         
         self.mode_var = ctk.StringVar(value="Ambos")
         self.duration_var = ctk.StringVar(value="50")
+        self.min_dur_var = ctk.StringVar(value="8")  # Duração mínima do vídeo (câmera lenta)
         self.photos_var = ctk.StringVar(value="5")
         self.quality_var = ctk.StringVar(value="Boa")
         self.hw_var = ctk.StringVar(value="CPU")
@@ -285,7 +286,8 @@ class App(ctk.CTk):
                 progress_callback=track_progress, 
                 frame_callback=self.update_preview,
                 new_person_callback=new_person_cb,
-                cancel_event=self.cancel_event
+                cancel_event=self.cancel_event,
+                log_callback=self.log
             )
             time_phase1 = time.time() - t_start_phase1
             
@@ -310,12 +312,17 @@ class App(ctk.CTk):
                     self.add_face_gallery(final_name, final_faces_rgb[final_name])
                 
             total_scenes = sum(len(s) for s in scenes.values())
-            self.log(f"Fase 1 concluída! {len(scenes)} pessoa(s) e {total_scenes} cena(s) identificadas.")
+            self.log(f"Fase 1 concluída em {time_phase1:.1f}s! {len(scenes)} pessoa(s) detectada(s).")
+            self.log(f"Total de cenas identificadas: {total_scenes}")
+            for pname, pscenes in scenes.items():
+                dur_total = sum((s['end_frame'] - s['start_frame']) / tracker.fps for s in pscenes)
+                self.log(f"  -> {pname}: {len(pscenes)} cena(s), ~{dur_total:.1f}s de presença no vídeo")
             self.log("Iniciando Fase 2: Recorte e Renderização...")
             self.after(0, self.status_label.configure, {"text": "Fase 2: Aplicando Auto-Reframe (9:16) e renderizando..."})
             self.after(0, self.progress_bar.set, 0)
             
             final_output_dir = self.output_dir if self.output_dir else os.path.join(os.path.dirname(self.video_path), "output_cortes")
+            self.log(f"Pasta de saída: {final_output_dir}")
             cutter = VideoCutter(self.video_path, output_dir=final_output_dir)
             
             def cut_progress(current, total):
@@ -323,12 +330,13 @@ class App(ctk.CTk):
                     self.update_progress(current, total, "Fase 2: Renderizando vídeo")
                 else:
                     self.update_progress(current, total, "Fase 2: Concluindo pessoa")
-                    self.log(f"Processamento de vídeo de pessoa concluído ({current}/{total}).")
+                    self.log(f"Pessoa {current}/{total} concluída.")
                 
             selected_quality = self.quality_var.get()
             bitrate = self.quality_bitrate_map.get(selected_quality, "5000k")
             
-            self.log(f"Qualidade de renderização: {selected_quality} ({bitrate})")
+            self.log(f"Qualidade de renderização: {selected_quality} ({bitrate}) | Hardware: {self.hw_var.get()}")
+            self.log(f"Modo: {self.mode_var.get()} | Duração máx.: {self.duration_var.get()}s | Câmera lenta até: {self.min_dur_var.get()}s")
             
             stats = cutter.cut_scenes(
                 scenes, 
@@ -336,12 +344,14 @@ class App(ctk.CTk):
                 bitrate=bitrate, 
                 mode=self.mode_var.get(),
                 max_duration=float(self.duration_var.get()),
+                min_duration=float(self.min_dur_var.get()),
                 num_photos=int(self.photos_var.get()),
                 hw_accel=self.hw_var.get(),
                 preview_mode=self.preview_var.get(),
                 progress_callback=cut_progress, 
                 frame_callback=self.update_preview,
-                cancel_event=self.cancel_event
+                cancel_event=self.cancel_event,
+                log_callback=self.log
             )
             stats["tracking_time"] = time_phase1
             
@@ -458,8 +468,11 @@ class App(ctk.CTk):
         self.bottom_settings_frame.pack(fill="x", padx=20, pady=0)
         
         # Conteúdo do Video Frame
-        ctk.CTkLabel(self.video_settings_frame, text="Duração do Vídeo (s):").pack(anchor="w", pady=(0, 5))
+        ctk.CTkLabel(self.video_settings_frame, text="Duração Máxima do Vídeo (s):").pack(anchor="w", pady=(0, 5))
         ctk.CTkOptionMenu(self.video_settings_frame, variable=self.duration_var, values=["10", "15", "20", "30", "40", "50"]).pack(fill="x", pady=(0, 15))
+        
+        ctk.CTkLabel(self.video_settings_frame, text="Duração Mínima / Alvo Câmera Lenta (s):").pack(anchor="w", pady=(0, 5))
+        ctk.CTkOptionMenu(self.video_settings_frame, variable=self.min_dur_var, values=["5", "8", "10", "12", "15"]).pack(fill="x", pady=(0, 15))
         
         ctk.CTkLabel(self.video_settings_frame, text="Qualidade do Vídeo:").pack(anchor="w", pady=(0, 5))
         ctk.CTkOptionMenu(self.video_settings_frame, variable=self.quality_var, values=list(self.quality_bitrate_map.keys())).pack(fill="x", pady=(0, 15))

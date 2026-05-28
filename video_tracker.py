@@ -108,14 +108,19 @@ class VideoTracker:
         cv2.normalize(hist, hist, 0, 1, cv2.NORM_MINMAX)
         return hist
 
-    def process_video(self, preview_mode="Total", progress_callback=None, frame_callback=None, new_person_callback=None, cancel_event=None):
+    def process_video(self, preview_mode="Total", progress_callback=None, frame_callback=None, new_person_callback=None, cancel_event=None, log_callback=None):
         import mediapipe as mp
         # Importação explícita para o PyInstaller não se perder
         import mediapipe.python.solutions.face_detection as mp_face_detection_module
         mp_face_detection = mp.solutions.face_detection if hasattr(mp, 'solutions') else mp_face_detection_module
         
+        def _log(msg):
+            if log_callback:
+                log_callback(msg)
+        
         fvs = FileVideoStream(self.video_path, queue_size=256).start()
         frame_idx = 0
+        last_log_pct = -1
         
         last_frame_faces = [] # list of {'name': name, 'box': box}
         
@@ -158,13 +163,14 @@ class VideoTracker:
                                 face_locations.append((y, x_right, y_bottom, x))
                                 
                         if face_locations:
-                            # Filtro de Protagonistas: Ignorar rostos menores que 60% do tamanho do maior rosto do frame
+                            # Filtro de Protagonistas: Ignorar rostos menores que 20% do maior rosto do frame
+                            # (valor baixo para garantir que corredores ao fundo ou em grupo sejam capturados)
                             max_box_size = max([max(r - l, b - t) for (t, r, b, l) in face_locations])
                             primary_face_locations = []
                             for loc in face_locations:
                                 t, r, b, l = loc
                                 box_size = max(r - l, b - t)
-                                if box_size >= max_box_size * 0.6:
+                                if box_size >= max_box_size * 0.20:
                                     primary_face_locations.append(loc)
                             face_locations = primary_face_locations
                     
@@ -268,19 +274,34 @@ class VideoTracker:
                 frame_idx += 1
                 if progress_callback and frame_idx % 30 == 0:
                     progress_callback(frame_idx, self.total_frames)
+                # Log de progresso a cada 5% dos frames
+                if self.total_frames > 0:
+                    pct = int((frame_idx / self.total_frames) * 100)
+                    pct_bucket = pct // 5
+                    if pct_bucket != last_log_pct:
+                        last_log_pct = pct_bucket
+                        pessoas = len(set(self.known_names))
+                        _log(f"Fase 1: {pct}% analisado ({frame_idx}/{self.total_frames} frames) | {pessoas} pessoa(s) encontrada(s) ate agora")
                     
         fvs.stop()
         
-        # PÓS-PROCESSAMENTO: Fusão Global
-        self._merge_identities()
+        # POS-PROCESSAMENTO: Fusao Global
+        _log("Fase 1: Rastreamento concluido! Iniciando fusao de identidades (pode demorar)...")
+        self._merge_identities(log_callback=log_callback)
+        _log(f"Fase 1: Fusao concluida! {len(self.tracking_data)} identidade(s) final(is).")
         
         return self._generate_scenes(), self.person_faces_rgb
         
-    def _merge_identities(self):
+    def _merge_identities(self, log_callback=None):
         """
         Análise global post-mortem. Fusão por Exclusão Temporal.
         """
+        def _log(msg):
+            if log_callback:
+                log_callback(msg)
+                
         all_names = list(self.tracking_data.keys())
+        _log(f"Fusao: Comparando {len(all_names)} identidade(s) detectadas...")
         if len(all_names) <= 1:
             return
             
@@ -331,6 +352,10 @@ class VideoTracker:
         for to_keep, to_merge in merges:
             self.tracking_data[to_keep].extend(self.tracking_data[to_merge])
             del self.tracking_data[to_merge]
+        if merges:
+            _log(f"Fusao: {len(merges)} identidade(s) fundida(s). Total final: {len(self.tracking_data)} pessoa(s).")
+        else:
+            _log(f"Fusao: Nenhuma identidade fundida. Total: {len(self.tracking_data)} pessoa(s).")
         
     def _generate_scenes(self):
         """
@@ -361,8 +386,8 @@ class VideoTracker:
                     current_scene['positions'][frame_idx] = (cx, cy, size)
                 else:
                     # Salva a cena atual e começa uma nova
-                    # Ignorar cenas muito curtas (menos de 2 segundos)
-                    if (current_scene['end_frame'] - current_scene['start_frame']) > self.fps * 2:
+                    # Aceitar cenas de pelo menos 0.5 segundo (corredores passam rapido!)
+                    if (current_scene['end_frame'] - current_scene['start_frame']) > self.fps * 0.5:
                         self._smooth_positions(current_scene)
                         scenes[person].append(current_scene)
                     
@@ -372,7 +397,7 @@ class VideoTracker:
                         'positions': {frame_idx: (cx, cy, size)}
                     }
                     
-            if (current_scene['end_frame'] - current_scene['start_frame']) > self.fps * 2:
+            if (current_scene['end_frame'] - current_scene['start_frame']) > self.fps * 0.5:
                 self._smooth_positions(current_scene)
                 scenes[person].append(current_scene)
                 

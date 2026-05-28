@@ -6,5 +6,5 @@ numpy<2
 scipy
 mediapipe
 pyinstaller
-p y w e b v i e w  
+pywebview
 matplotlib
