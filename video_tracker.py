@@ -171,9 +171,11 @@ class VideoTracker:
                             for loc in face_locations:
                                 t, r, b, l = loc
                                 box_size = max(r - l, b - t)
-                                # Sensibilidade aumentada: reduziu a régua do Filtro de Protagonistas de 0.20 para 0.05
-                                # para incluir rostos menores no fundo, em grupo ou em planos secundários.
-                                if box_size >= max_box_size * 0.05:
+                                # Filtro de Protagonistas: 15% do maior rosto do frame.
+                                # Valor baixo o suficiente para capturar rostos secundários,
+                                # mas alto o suficiente para evitar ruídos minúsculos ao fundo
+                                # que causariam a criação de identidades falsas.
+                                if box_size >= max_box_size * 0.15:
                                     primary_face_locations.append(loc)
                             face_locations = primary_face_locations
                     
@@ -183,8 +185,9 @@ class VideoTracker:
                             if preview_mode == "Total" or (preview_mode == "Metade" and frame_idx % (self.sample_rate * 2) == 0) or (preview_mode == "1/4" and frame_idx % (self.sample_rate * 4) == 0):
                                 frame_callback(rgb_frame)
                     else:
-                        # Biometria de Alta Definição: mudou para o modelo padrão (large) de 128 pontos para evitar perda de identidade
-                        face_encodings = face_recognition.face_encodings(rgb_frame, face_locations, num_jitters=1)
+                        # Biometria de Alta Definição: num_jitters=2 para melhor qualidade de encoding
+                        # especialmente em rostos de perfil, sob ângulos difíceis ou com oclusão parcial.
+                        face_encodings = face_recognition.face_encodings(rgb_frame, face_locations, num_jitters=2)
                         
                         preview_frame = frame.copy() if frame_callback else None
                         current_frame_faces = []
@@ -409,39 +412,49 @@ class VideoTracker:
     def _smooth_positions(self, scene):
         """
         Interpola frames vazios e suaviza a curva de movimento (evitar câmera tremida).
+        
+        Usa interpolação linear bidirecional (np.interp) em vez de forward-fill.
+        Isso garante que frames sem detecção recebem uma posição calculada como média
+        entre o último ponto conhecido ANTES e o próximo ponto conhecido DEPOIS —
+        evitando saltos abruptos para posições de outros momentos do vídeo.
         """
         start = scene['start_frame']
         end = scene['end_frame']
         
-        frames = []
-        xs = []
-        ys = []
+        all_frames = list(range(start, end + 1))
         
-        # Preencher buracos usando o valor anterior conhecido (interpolação básica)
-        last_x, last_y = None, None
+        # Separar frames onde realmente detectamos a pessoa dos frames vazios
+        known_frames = sorted(scene['positions'].keys())
+        known_xs = [scene['positions'][f][0] for f in known_frames]
+        known_ys = [scene['positions'][f][1] for f in known_frames]
         
-        for f in range(start, end + 1):
-            if f in scene['positions']:
-                x, y, _ = scene['positions'][f]
-                last_x, last_y = x, y
-            else:
-                x, y = last_x, last_y
-                
-            frames.append(f)
-            xs.append(x)
-            ys.append(y)
-            
-        # Suavizar movimento
-        window = min(int(self.fps) | 1, len(xs) | 1) # Janela ímpar ~1 segundo
-        if window > 3 and len(xs) > window:
-            xs_smooth = savgol_filter(xs, window, 3)
-            ys_smooth = savgol_filter(ys, window, 3)
+        if not known_frames:
+            scene['positions_smooth'] = {}
+            return
+        
+        if len(known_frames) == 1:
+            # Apenas um ponto conhecido: preencher tudo com ele
+            cx, cy = known_xs[0], known_ys[0]
+            scene['positions_smooth'] = {f: (cx, cy) for f in all_frames}
+            return
+        
+        # Interpolação linear verdadeira (bidirecional) para todos os frames da cena.
+        # np.interp usa os pontos conhecidos como âncoras e interpola linearmente entre eles.
+        # Para frames fora do range dos conhecidos, usa o valor do extremo mais próximo (clamp).
+        xs_interp = np.interp(all_frames, known_frames, known_xs)
+        ys_interp = np.interp(all_frames, known_frames, known_ys)
+        
+        # Suavizar movimento com Savitzky-Golay para evitar câmera tremida
+        window = min(int(self.fps) | 1, len(xs_interp) | 1)  # Janela ímpar ~1 segundo
+        if window > 3 and len(xs_interp) > window:
+            xs_smooth = savgol_filter(xs_interp, window, 3)
+            ys_smooth = savgol_filter(ys_interp, window, 3)
         else:
-            xs_smooth = xs
-            ys_smooth = ys
+            xs_smooth = xs_interp
+            ys_smooth = ys_interp
             
         # Atualizar posições com os dados suavizados e preenchidos
         scene['positions_smooth'] = {
             f: (int(xs_smooth[i]), int(ys_smooth[i])) 
-            for i, f in enumerate(frames)
+            for i, f in enumerate(all_frames)
         }

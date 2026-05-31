@@ -100,7 +100,7 @@ class VideoCutter:
                     
                     subclip = base_clip_local.subclipped(start_time, end_time)
                     
-                    def make_crop_func(positions_smooth, start_f):
+                    def make_crop_func(positions_smooth, start_f, end_f):
                         def crop_func(get_frame, t):
                             if cancel_event and cancel_event.is_set():
                                 raise RuntimeError("Processamento cancelado pelo usuario")
@@ -109,10 +109,13 @@ class VideoCutter:
                             if f_idx in positions_smooth:
                                 cx, cy = positions_smooth[f_idx]
                             else:
-                                keys = list(positions_smooth.keys())
-                                if not keys: return frame
-                                closest_f = min(keys, key=lambda k: abs(k - f_idx))
-                                cx, cy = positions_smooth[closest_f]
+                                # Clamp seguro: usar o primeiro ou último ponto da CENA atual.
+                                # Nunca buscar fora do range da cena (o que causaria saltar
+                                # para a posição de outra pessoa ou outro período do vídeo).
+                                if f_idx < start_f:
+                                    cx, cy = positions_smooth.get(start_f, next(iter(positions_smooth.values())))
+                                else:
+                                    cx, cy = positions_smooth.get(end_f, next(reversed(list(positions_smooth.values()))))
                                 
                             x1 = cx - (target_w // 2)
                             # Centralização Cinematográfica: Posiciona o rosto no terço superior (33% da altura)
@@ -204,7 +207,7 @@ class VideoCutter:
                             return cropped
                         return crop_func
                     
-                    cropped_clip = subclip.transform(make_crop_func(scene['positions_smooth'], scene['start_frame']))
+                    cropped_clip = subclip.transform(make_crop_func(scene['positions_smooth'], scene['start_frame'], scene['end_frame']))
                     person_clips.append(cropped_clip)
                     
                 if cancel_event and cancel_event.is_set():
