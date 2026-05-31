@@ -115,7 +115,9 @@ class VideoCutter:
                                 cx, cy = positions_smooth[closest_f]
                                 
                             x1 = cx - (target_w // 2)
-                            y1 = cy - (target_h // 2)
+                            # Centralização Cinematográfica: Posiciona o rosto no terço superior (33% da altura)
+                            # para que a cabeça fique no terço superior e o corpo ocupe o centro/base do vídeo.
+                            y1 = cy - int(target_h * 0.33)
                             
                             x1 = max(0, min(x1, original_w - target_w))
                             y1 = max(0, min(y1, original_h - target_h))

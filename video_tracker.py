@@ -124,7 +124,8 @@ class VideoTracker:
         
         last_frame_faces = [] # list of {'name': name, 'box': box}
         
-        with mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5) as face_detection:
+        # Sensibilidade aumentada: min_detection_confidence = 0.35 para capturar rostos de perfil, em sombra ou sob ângulos difíceis
+        with mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.35) as face_detection:
             while fvs.more():
                 if cancel_event and cancel_event.is_set():
                     break
@@ -170,7 +171,9 @@ class VideoTracker:
                             for loc in face_locations:
                                 t, r, b, l = loc
                                 box_size = max(r - l, b - t)
-                                if box_size >= max_box_size * 0.20:
+                                # Sensibilidade aumentada: reduziu a régua do Filtro de Protagonistas de 0.20 para 0.05
+                                # para incluir rostos menores no fundo, em grupo ou em planos secundários.
+                                if box_size >= max_box_size * 0.05:
                                     primary_face_locations.append(loc)
                             face_locations = primary_face_locations
                     
@@ -180,8 +183,8 @@ class VideoTracker:
                             if preview_mode == "Total" or (preview_mode == "Metade" and frame_idx % (self.sample_rate * 2) == 0) or (preview_mode == "1/4" and frame_idx % (self.sample_rate * 4) == 0):
                                 frame_callback(rgb_frame)
                     else:
-                        # Otimização de Performance: num_jitters=1 e model="small" reduz drasticamente o tempo
-                        face_encodings = face_recognition.face_encodings(rgb_frame, face_locations, num_jitters=1, model="small")
+                        # Biometria de Alta Definição: mudou para o modelo padrão (large) de 128 pontos para evitar perda de identidade
+                        face_encodings = face_recognition.face_encodings(rgb_frame, face_locations, num_jitters=1)
                         
                         preview_frame = frame.copy() if frame_callback else None
                         current_frame_faces = []

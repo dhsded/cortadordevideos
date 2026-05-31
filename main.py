@@ -51,6 +51,7 @@ class App(ctk.CTk):
         self.quality_var = ctk.StringVar(value="Boa")
         self.hw_var = ctk.StringVar(value="CPU")
         self.sound_var = ctk.StringVar(value="Soft Bell")
+        self.precision_var = ctk.StringVar(value="Alta (a cada 5 frames)")
         
         self._auto_detect_hardware()
         
@@ -271,7 +272,13 @@ class App(ctk.CTk):
                 widget.destroy()
             self.after(0, self.gallery_title.configure, {"text": "Rostos Detectados (0)"})
             
-            tracker = VideoTracker(self.video_path, sample_rate=15)
+            precision_map = {
+                "Alta (a cada 5 frames)": 5,
+                "Média (a cada 10 frames)": 10,
+                "Rápida (a cada 15 frames)": 15
+            }
+            sample_rate = precision_map.get(self.precision_var.get(), 5)
+            tracker = VideoTracker(self.video_path, sample_rate=sample_rate)
             
             def track_progress(current, total):
                 self.update_progress(current, total, "Fase 1: Analisando frame")
@@ -368,11 +375,11 @@ class App(ctk.CTk):
             
             sound = self.sound_var.get()
             if sound == "Soft Bell":
-                winsound.PlaySound(os.path.join("alertas", "soft_bell.wav"), winsound.SND_FILENAME | winsound.SND_ASYNC)
+                winsound.PlaySound(resource_path(os.path.join("alertas", "soft_bell.wav")), winsound.SND_FILENAME | winsound.SND_ASYNC)
             elif sound == "Success Chime":
-                winsound.PlaySound(os.path.join("alertas", "success_chime.wav"), winsound.SND_FILENAME | winsound.SND_ASYNC)
+                winsound.PlaySound(resource_path(os.path.join("alertas", "success_chime.wav")), winsound.SND_FILENAME | winsound.SND_ASYNC)
             elif sound == "Arcade Level Up":
-                winsound.PlaySound(os.path.join("alertas", "arcade_level_up.wav"), winsound.SND_FILENAME | winsound.SND_ASYNC)
+                winsound.PlaySound(resource_path(os.path.join("alertas", "arcade_level_up.wav")), winsound.SND_FILENAME | winsound.SND_ASYNC)
             
             self.after(0, self.status_label.configure, {"text": f"Concluído em {total_elapsed:.1f}s!"})
             self.after(0, self.progress_bar.set, 1)
@@ -480,6 +487,9 @@ class App(ctk.CTk):
         ctk.CTkLabel(self.video_settings_frame, text="Aceleração de Hardware:").pack(anchor="w", pady=(0, 5))
         ctk.CTkOptionMenu(self.video_settings_frame, variable=self.hw_var, values=["CPU", "NVIDIA", "AMD", "Intel"]).pack(fill="x", pady=(0, 15))
         
+        ctk.CTkLabel(self.video_settings_frame, text="Precisão de Rastreamento IA:").pack(anchor="w", pady=(0, 5))
+        ctk.CTkOptionMenu(self.video_settings_frame, variable=self.precision_var, values=["Alta (a cada 5 frames)", "Média (a cada 10 frames)", "Rápida (a cada 15 frames)"]).pack(fill="x", pady=(0, 15))
+        
         # Conteúdo Inferior
         ctk.CTkLabel(self.bottom_settings_frame, text="Quantidade de Fotos Extraídas:").pack(anchor="w", pady=(0, 5))
         ctk.CTkOptionMenu(self.bottom_settings_frame, variable=self.photos_var, values=["5", "10", "15", "20"]).pack(fill="x", pady=(0, 15))
@@ -504,11 +514,11 @@ class App(ctk.CTk):
         import winsound
         import os
         if sound == "Soft Bell":
-            winsound.PlaySound(os.path.join("alertas", "soft_bell.wav"), winsound.SND_FILENAME | winsound.SND_ASYNC)
+            winsound.PlaySound(resource_path(os.path.join("alertas", "soft_bell.wav")), winsound.SND_FILENAME | winsound.SND_ASYNC)
         elif sound == "Success Chime":
-            winsound.PlaySound(os.path.join("alertas", "success_chime.wav"), winsound.SND_FILENAME | winsound.SND_ASYNC)
+            winsound.PlaySound(resource_path(os.path.join("alertas", "success_chime.wav")), winsound.SND_FILENAME | winsound.SND_ASYNC)
         elif sound == "Arcade Level Up":
-            winsound.PlaySound(os.path.join("alertas", "arcade_level_up.wav"), winsound.SND_FILENAME | winsound.SND_ASYNC)
+            winsound.PlaySound(resource_path(os.path.join("alertas", "arcade_level_up.wav")), winsound.SND_FILENAME | winsound.SND_ASYNC)
             
     def _reset_ui(self):
         self.process_start_time = None
