@@ -121,6 +121,7 @@ class VideoTracker:
         fvs = FileVideoStream(self.video_path, queue_size=256).start()
         frame_idx = 0
         last_log_pct = -1
+        last_detection_frame_idx = -1  # Frame em que rostos foram detectados pela última vez
         
         last_frame_faces = [] # list of {'name': name, 'box': box}
         
@@ -205,13 +206,20 @@ class VideoTracker:
                             current_hist = self._extract_torso_histogram(rgb_frame, current_box)
                             
                             # CAMADA 1: Rastreamento Espacial (IoU - Física)
+                            # Só é válido se a detecção anterior foi RECENTE.
+                            # Sem isso, pessoa B que entra onde pessoa A saiu herda a identidade de A via sobreposição de caixas.
+                            iou_max_gap = self.sample_rate * 3  # Tolerância: até 3 frames analisados atrás
+                            iou_is_valid = (last_detection_frame_idx >= 0 and
+                                            (frame_idx - last_detection_frame_idx) <= iou_max_gap)
+                            
                             best_iou = 0
                             best_iou_name = None
-                            for last_face in last_frame_faces:
-                                iou = self._calculate_iou(current_box, last_face['box'])
-                                if iou > best_iou:
-                                    best_iou = iou
-                                    best_iou_name = last_face['name']
+                            if iou_is_valid:
+                                for last_face in last_frame_faces:
+                                    iou = self._calculate_iou(current_box, last_face['box'])
+                                    if iou > best_iou:
+                                        best_iou = iou
+                                        best_iou_name = last_face['name']
                                     
                             if best_iou > 0.35: # Se a caixa sobrepõe pelo menos 35% com o frame anterior, é a mesma pessoa
                                 name = best_iou_name
@@ -272,6 +280,7 @@ class VideoTracker:
                             current_frame_faces.append({'name': name, 'box': current_box})
                             
                         last_frame_faces = current_frame_faces
+                        last_detection_frame_idx = frame_idx  # Atualiza o timestamp da última detecção válida
                             
                         if frame_callback and preview_frame is not None and preview_mode != "Desligado":
                             if preview_mode == "Total" or (preview_mode == "Metade" and frame_idx % (self.sample_rate * 2) == 0) or (preview_mode == "1/4" and frame_idx % (self.sample_rate * 4) == 0):
@@ -370,7 +379,10 @@ class VideoTracker:
         scenes = defaultdict(list)
         
         # Agrupar frames próximos em cenas
-        max_gap = self.fps * 2  # Se a pessoa sumir por 2 segundos, não quebra a cena, assume que ainda está lá.
+        # Cena encerra se a pessoa sumir por mais de 0.5s.
+        # Valor conservador: evita que o vídeo continue mostrando o fundo/plateia
+        # após o sujeito principal sair de quadro.
+        max_gap = int(self.fps * 0.5)
         
         for person, data in self.tracking_data.items():
             if not data:
@@ -391,9 +403,9 @@ class VideoTracker:
                     current_scene['end_frame'] = frame_idx
                     current_scene['positions'][frame_idx] = (cx, cy, size)
                 else:
-                    # Salva a cena atual e começa uma nova
-                    # Aceitar cenas de pelo menos 0.5 segundo (corredores passam rapido!)
-                    if (current_scene['end_frame'] - current_scene['start_frame']) > self.fps * 0.5:
+                    # Salva a cena atual e começa uma nova.
+                    # Mínimo de 1.5s: filtra detecções espúrias que não geram vídeos úteis.
+                    if (current_scene['end_frame'] - current_scene['start_frame']) > self.fps * 1.5:
                         self._smooth_positions(current_scene)
                         scenes[person].append(current_scene)
                     
@@ -403,7 +415,7 @@ class VideoTracker:
                         'positions': {frame_idx: (cx, cy, size)}
                     }
                     
-            if (current_scene['end_frame'] - current_scene['start_frame']) > self.fps * 0.5:
+            if (current_scene['end_frame'] - current_scene['start_frame']) > self.fps * 1.5:
                 self._smooth_positions(current_scene)
                 scenes[person].append(current_scene)
                 
