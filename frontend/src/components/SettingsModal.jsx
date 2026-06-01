@@ -4,13 +4,12 @@ import { X, Save } from 'lucide-react'
 const PRESETS = {
   mode:         ['Ambos', 'Apenas Vídeo', 'Apenas Imagens'],
   duration:     ['10', '15', '20', '30', '40', '50'],
-  min_dur:      ['5', '8', '10', '12', '15'],
+  min_dur:      ['3', '5', '8', '10', '12', '15'],
   photos:       ['5', '10', '15', '20'],
   quality:      ['Baixa', 'Média', 'Boa', 'Alta', 'Superior'],
   hw:           ['CPU', 'NVIDIA', 'AMD', 'Intel'],
   sound:        ['Nenhum', 'Soft Bell', 'Success Chime', 'Arcade Level Up'],
   precision:    ['Alta (a cada 5 frames)', 'Média (a cada 10 frames)', 'Rápida (a cada 15 frames)'],
-  preview_mode: ['Total', 'Metade', '1/4', 'Desligado'],
 }
 
 function SelectField({ label, field, settings, onChange }) {
@@ -92,7 +91,6 @@ export default function SettingsModal({ onClose }) {
               <div className="space-y-3">
                 <SelectField label="Precisão de rastreamento" field="precision" settings={settings} onChange={setSettings} />
                 <SelectField label="Fotos extraídas por pessoa" field="photos" settings={settings} onChange={setSettings} />
-                <SelectField label="Preview do vídeo" field="preview_mode" settings={settings} onChange={setSettings} />
               </div>
             </div>
 

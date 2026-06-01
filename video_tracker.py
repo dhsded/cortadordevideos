@@ -194,18 +194,14 @@ class VideoTracker:
                                 face_locations.append((y, x_right, y_bottom, x))
                                 
                         if face_locations:
-                            # Filtro de Protagonistas: Ignorar rostos menores que 20% do maior rosto do frame
-                            # (valor baixo para garantir que corredores ao fundo ou em grupo sejam capturados)
+                            # Filtro de Protagonistas: Ignorar rostos menores que 8% do maior rosto do frame
+                            # (valor baixo para capturar pessoas ao fundo, em grupo ou de passagem)
                             max_box_size = max([max(r - l, b - t) for (t, r, b, l) in face_locations])
                             primary_face_locations = []
                             for loc in face_locations:
                                 t, r, b, l = loc
                                 box_size = max(r - l, b - t)
-                                # Filtro de Protagonistas: 15% do maior rosto do frame.
-                                # Valor baixo o suficiente para capturar rostos secundários,
-                                # mas alto o suficiente para evitar ruídos minúsculos ao fundo
-                                # que causariam a criação de identidades falsas.
-                                if box_size >= max_box_size * 0.15:
+                                if box_size >= max_box_size * 0.08:
                                     primary_face_locations.append(loc)
                             face_locations = primary_face_locations
                     
@@ -412,11 +408,11 @@ class VideoTracker:
         """
         scenes = defaultdict(list)
         
-        # Agrupar frames próximos em cenas
-        # Cena encerra se a pessoa sumir por mais de 0.5s.
-        # Valor conservador: evita que o vídeo continue mostrando o fundo/plateia
-        # após o sujeito principal sair de quadro.
+        # Encerrar cena se pessoa sumir por mais de 0.5s.
         max_gap = int(self.fps * 0.5)
+        # Cena minima de 0.5s para evitar apenas deteccoes esporadicas.
+        # Cenas curtas serao extendidas com slow-motion no video_cutter.
+        min_scene_frames = self.fps * 0.5
         
         for person, data in self.tracking_data.items():
             if not data:
@@ -439,7 +435,7 @@ class VideoTracker:
                 else:
                     # Salva a cena atual e começa uma nova.
                     # Mínimo de 1.5s: filtra detecções espúrias que não geram vídeos úteis.
-                    if (current_scene['end_frame'] - current_scene['start_frame']) > self.fps * 1.5:
+                    if (current_scene['end_frame'] - current_scene['start_frame']) > min_scene_frames:
                         self._smooth_positions(current_scene)
                         scenes[person].append(current_scene)
                     
@@ -449,7 +445,7 @@ class VideoTracker:
                         'positions': {frame_idx: (cx, cy, size)}
                     }
                     
-            if (current_scene['end_frame'] - current_scene['start_frame']) > self.fps * 1.5:
+            if (current_scene['end_frame'] - current_scene['start_frame']) > min_scene_frames:
                 self._smooth_positions(current_scene)
                 scenes[person].append(current_scene)
                 

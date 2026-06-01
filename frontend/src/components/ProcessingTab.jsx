@@ -1,5 +1,12 @@
-import { useRef, useEffect } from 'react'
-import { User } from 'lucide-react'
+import { useRef, useEffect, useState } from 'react'
+import { User, RotateCcw, RotateCw } from 'lucide-react'
+
+const QUALITY_OPTIONS = [
+  { label: 'Total', value: 'Total' },
+  { label: '½',     value: 'Metade' },
+  { label: '¼',     value: '1/4' },
+  { label: 'Off',   value: 'Desligado' },
+]
 
 function ProgressBar({ value, max, color = 'bg-accent' }) {
   const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0
@@ -9,7 +16,6 @@ function ProgressBar({ value, max, color = 'bg-accent' }) {
         className={`progress-bar ${color} relative overflow-hidden`}
         style={{ width: `${pct}%` }}
       >
-        {/* Shimmer effect */}
         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent
           bg-[length:200%_100%] animate-shimmer" />
       </div>
@@ -19,6 +25,8 @@ function ProgressBar({ value, max, color = 'bg-accent' }) {
 
 export default function ProcessingTab({ processing, progress, queueProgress, logs, persons, previewFrame }) {
   const logRef = useRef(null)
+  const [rotation, setRotation]   = useState(0)
+  const [quality, setQuality]     = useState('Metade')
 
   useEffect(() => {
     if (logRef.current) {
@@ -26,7 +34,27 @@ export default function ProcessingTab({ processing, progress, queueProgress, log
     }
   }, [logs])
 
+  // Carregar quality atual das configurações
+  useEffect(() => {
+    fetch('/api/settings').then(r => r.json()).then(s => {
+      if (s?.preview_mode) setQuality(s.preview_mode)
+    })
+  }, [])
+
+  const rotate = (dir) => setRotation(r => (r + dir * 90 + 360) % 360)
+
+  const changeQuality = async (q) => {
+    setQuality(q)
+    const s = await fetch('/api/settings').then(r => r.json())
+    await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...s, preview_mode: q }),
+    })
+  }
+
   const phasePct = progress.total > 0 ? (progress.current / progress.total) * 100 : 0
+  const isRotated90 = rotation === 90 || rotation === 270
 
   return (
     <div className="flex flex-col h-full p-4 gap-4 overflow-hidden animate-fade-in">
@@ -87,18 +115,76 @@ export default function ProcessingTab({ processing, progress, queueProgress, log
         )}
       </div>
 
-      {/* Preview do vídeo */}
-      {previewFrame && (
-        <div className="card overflow-hidden relative">
-          <img
-            src={previewFrame}
-            alt="Preview"
-            className="w-full object-contain max-h-52"
-            style={{ imageRendering: 'crisp-edges' }}
-          />
-          <div className="absolute top-2 right-2 flex items-center gap-1.5 bg-black/60 rounded-full px-2.5 py-1">
-            <div className="w-1.5 h-1.5 rounded-full bg-danger animate-pulse" />
-            <span className="text-[10px] text-white font-semibold">AO VIVO</span>
+      {/* Preview do vídeo com controles integrados */}
+      {(previewFrame || processing) && (
+        <div className="card overflow-hidden relative bg-black">
+          {/* Imagem com rotação CSS */}
+          <div
+            className="flex items-center justify-center overflow-hidden"
+            style={{ minHeight: '120px', maxHeight: '220px' }}
+          >
+            {previewFrame ? (
+              <img
+                src={previewFrame}
+                alt="Preview"
+                style={{
+                  transform: `rotate(${rotation}deg)`,
+                  transition: 'transform 0.3s ease',
+                  maxHeight: isRotated90 ? '200px' : '220px',
+                  maxWidth: isRotated90 ? '120px' : '100%',
+                  objectFit: 'contain',
+                }}
+              />
+            ) : (
+              <div className="text-muted text-xs py-8">Aguardando frames...</div>
+            )}
+          </div>
+
+          {/* Barra superior: AO VIVO + controles de rotação */}
+          <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-2 py-1.5 bg-gradient-to-b from-black/70 to-transparent">
+            {/* AO VIVO */}
+            {previewFrame && (
+              <div className="flex items-center gap-1.5">
+                <div className="w-1.5 h-1.5 rounded-full bg-danger animate-pulse" />
+                <span className="text-[10px] text-white font-semibold">AO VIVO</span>
+              </div>
+            )}
+            {!previewFrame && <div />}
+
+            {/* Botões de rotação */}
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => rotate(-1)}
+                className="p-1 rounded bg-black/50 hover:bg-black/80 text-white transition-colors"
+                title="Girar esquerda"
+              >
+                <RotateCcw size={12} />
+              </button>
+              <span className="text-[10px] text-white/70 px-1">{rotation}°</span>
+              <button
+                onClick={() => rotate(1)}
+                className="p-1 rounded bg-black/50 hover:bg-black/80 text-white transition-colors"
+                title="Girar direita"
+              >
+                <RotateCw size={12} />
+              </button>
+            </div>
+          </div>
+
+          {/* Barra inferior: qualidade do preview */}
+          <div className="absolute bottom-0 left-0 right-0 flex items-center justify-center gap-1 px-2 py-1.5 bg-gradient-to-t from-black/70 to-transparent">
+            {QUALITY_OPTIONS.map(opt => (
+              <button
+                key={opt.value}
+                onClick={() => changeQuality(opt.value)}
+                className={`text-[10px] font-semibold px-2 py-0.5 rounded transition-all
+                  ${quality === opt.value
+                    ? 'bg-accent text-white'
+                    : 'bg-black/50 text-white/60 hover:text-white hover:bg-black/70'}`}
+              >
+                {opt.label}
+              </button>
+            ))}
           </div>
         </div>
       )}
