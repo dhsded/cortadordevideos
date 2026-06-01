@@ -308,12 +308,13 @@ class VideoCutter:
 
                         # Se o vídeo tiver menos que min_duration, aplicar câmera lenta
                         if part_clip.duration < min_duration:
-                            if part_clip.duration <= 0.5:
-                                _log(f"[{person_name}] Parte {valid_part_idx} ignorada (muito curta: {part_clip.duration:.1f}s).")
+                            if part_clip.duration <= 0.3:
+                                _log(f"[{person_name}] Parte {valid_part_idx} ignorada (muito curta: {part_clip.duration:.1f}s — mínimo 0.3s).")
                                 continue
                             import moviepy.video.fx as vfx
                             factor = part_clip.duration / min_duration
-                            _log(f"[{person_name}] Video curto ({part_clip.duration:.1f}s) -> Aplicando camera lenta ({factor:.2f}x) para {min_duration:.0f}s.")
+                            slow_pct = int(factor * 100)
+                            _log(f"[{person_name}] 🐢 Clip curto ({part_clip.duration:.1f}s) → slow motion {slow_pct}% → {min_duration:.0f}s finais.")
                             part_clip = part_clip.with_effects([vfx.MultiplySpeed(factor)]).without_audio()
 
                         _log(f"[{display_name}] Renderizando parte {valid_part_idx} ({part_clip.duration:.1f}s)...")
