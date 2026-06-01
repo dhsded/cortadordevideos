@@ -24,11 +24,17 @@ class FileVideoStream:
             if self.stopped:
                 return
             if not self.Q.full():
-                ret, frame = self.stream.read()
-                if not ret:
-                    self.stop()
-                    return
-                self.Q.put(frame)
+                try:
+                    ret, frame = self.stream.read()
+                    if not ret:
+                        self.stop()
+                        return
+                    self.Q.put(frame)
+                except Exception:
+                    # Frame corrompido ou erro de codec — ignorar e continuar
+                    import time
+                    time.sleep(0.01)
+                    continue
             else:
                 import time
                 time.sleep(0.01)
