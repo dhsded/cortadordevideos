@@ -30,6 +30,39 @@ def get_sharpness(img):
     gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
     return cv2.Laplacian(gray, cv2.CV_64F).var()
 
+def _apply_lazy_pan(positions_smooth, lerp_factor=0.06):
+    """
+    Converte rastreamento direto em movimento de câmera gradual estilo CapCut.
+
+    Em vez de seguir a pessoa frame-a-frame (causando pans bruscos),
+    a câmera 'persegue' a pessoa com inércia (sistema de mola amortecida).
+
+    lerp_factor=0.06 (6% por frame):
+      - 50% do caminho em ~11 frames  (~0.37s a 30fps)
+      -  90% do caminho em ~37 frames (~1.23s a 30fps)
+
+    Resultado: pan cinematográfico onde a pessoa pode entrar pelo canto do
+    frame e deslizar suavemente para o centro, sem cortes abruptos.
+    """
+    if not positions_smooth or len(positions_smooth) < 2:
+        return positions_smooth
+
+    frames = sorted(positions_smooth.keys())
+    lazy = {}
+
+    # Iniciar câmera na posição do primeiro frame detectado
+    first_x, first_y = positions_smooth[frames[0]]
+    cam_x, cam_y = float(first_x), float(first_y)
+
+    for f in frames:
+        tx, ty = positions_smooth[f]
+        # EMA: aproxima a câmera do alvo em lerp_factor por frame
+        cam_x += (tx - cam_x) * lerp_factor
+        cam_y += (ty - cam_y) * lerp_factor
+        lazy[f] = (int(cam_x), int(cam_y))
+
+    return lazy
+
 class VideoCutter:
     def __init__(self, video_path, output_dir="output"):
         self.video_path = video_path
@@ -145,6 +178,12 @@ class VideoCutter:
 
                         subclip = base_clip_local.subclipped(start_time, end_time)
 
+                        # Aplicar pan gradual (lazy camera): a câmera persegue
+                        # a pessoa com inércia, como keyframes graduais do CapCut.
+                        # A pessoa pode aparecer na borda do frame e deslizar
+                        # suavemente para o centro sem cortes bruscos.
+                        lazy_positions = _apply_lazy_pan(scene['positions_smooth'])
+
                         def make_crop_func(positions_smooth, start_f, end_f, _pose=pose):
                             def crop_func(get_frame, t):
                                 if cancel_event and cancel_event.is_set():
@@ -237,7 +276,7 @@ class VideoCutter:
                                 return cropped
                             return crop_func
 
-                        cropped_clip = subclip.transform(make_crop_func(scene['positions_smooth'], scene['start_frame'], scene['end_frame']))
+                        cropped_clip = subclip.transform(make_crop_func(lazy_positions, scene['start_frame'], scene['end_frame']))
                         person_clips.append(cropped_clip)
 
                 if cancel_event and cancel_event.is_set():
