@@ -1,7 +1,5 @@
-import os, sys, json, queue, threading, time
+import os, sys, json, queue, threading, time, subprocess
 from flask import Flask, request, jsonify, send_from_directory, Response, stream_with_context
-from tkinter import filedialog
-import tkinter as tk
 
 # ── Adicionar o root do projeto ao path ──────────────────────────────────────
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -90,48 +88,59 @@ def clear_queue():
     state["video_queue"].clear()
     return jsonify({"queue": []})
 
-# ── File dialog (precisa rodar na thread principal via tkinter oculto) ─────────
-_tk_root = None
+# ── File dialogs via PowerShell (funciona de qualquer thread) ────────────────
+def _ps_open_files():
+    """Abre o dialogo de selecao de arquivos via PowerShell."""
+    script = (
+        "Add-Type -AssemblyName System.Windows.Forms;"
+        "$d = New-Object System.Windows.Forms.OpenFileDialog;"
+        "$d.Multiselect = $true;"
+        "$d.Title = 'Selecione videos para a fila';"
+        "$d.Filter = 'Arquivos de Video|*.mp4;*.avi;*.mov;*.mkv;*.MP4;*.AVI;*.MOV;*.MKV';"
+        "if ($d.ShowDialog() -eq 'OK') { $d.FileNames -join '|' }"
+    )
+    try:
+        r = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+            capture_output=True, text=True, timeout=120
+        )
+        output = r.stdout.strip()
+        if output:
+            return [p for p in output.split('|') if p.strip()]
+    except Exception as e:
+        sse_push("log", {"text": f"Erro no dialogo de arquivos: {e}"})
+    return []
 
-def _get_tk():
-    global _tk_root
-    if _tk_root is None:
-        _tk_root = tk.Tk()
-        _tk_root.withdraw()
-    return _tk_root
+def _ps_open_folder():
+    """Abre o dialogo de selecao de pasta via PowerShell."""
+    script = (
+        "Add-Type -AssemblyName System.Windows.Forms;"
+        "$d = New-Object System.Windows.Forms.FolderBrowserDialog;"
+        "$d.Description = 'Selecione a pasta de saida';"
+        "$d.ShowNewFolderButton = $true;"
+        "if ($d.ShowDialog() -eq 'OK') { $d.SelectedPath }"
+    )
+    try:
+        r = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+            capture_output=True, text=True, timeout=120
+        )
+        return r.stdout.strip() or None
+    except Exception as e:
+        sse_push("log", {"text": f"Erro no dialogo de pasta: {e}"})
+    return None
 
 @app.route("/api/dialog/videos", methods=["POST"])
 def dialog_videos():
-    result = {"paths": []}
-    ev = threading.Event()
-    def _open():
-        paths = filedialog.askopenfilenames(
-            parent=_get_tk(),
-            title="Selecione vídeos para a fila",
-            filetypes=[("Arquivos de Vídeo", "*.mp4 *.avi *.mov *.mkv *.MP4 *.AVI *.MOV *.MKV")]
-        )
-        result["paths"] = list(paths)
-        ev.set()
-    import webview
-    # Se pywebview estiver rodando, precisamos de um workaround
-    # Usamos uma thread separada para o diálogo
-    t = threading.Thread(target=_open)
-    t.start()
-    t.join(timeout=60)
-    return jsonify(result)
+    paths = _ps_open_files()
+    return jsonify({"paths": paths})
 
 @app.route("/api/dialog/output", methods=["POST"])
 def dialog_output():
-    result = {"path": None}
-    def _open():
-        path = filedialog.askdirectory(parent=_get_tk(), title="Selecione a pasta de saída")
-        result["path"] = path or None
-        if path:
-            state["output_dir"] = path
-    t = threading.Thread(target=_open)
-    t.start()
-    t.join(timeout=60)
-    return jsonify(result)
+    path = _ps_open_folder()
+    if path:
+        state["output_dir"] = path
+    return jsonify({"path": path})
 
 # ── Settings ──────────────────────────────────────────────────────────────────
 @app.route("/api/settings", methods=["GET"])
