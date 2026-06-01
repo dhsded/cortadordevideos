@@ -288,8 +288,14 @@ def _run_pipeline():
 
             n_persons = len(scenes)
             accum["total_persons_found"] += n_persons
-            log(f"Fase 1: {t_phase1:.1f}s | {n_persons} pessoa(s)")
-            sse_push("progress", {"current": 0, "total": 100, "phase": 2, "video": vid_name})
+            log(f"Fase 1: {t_phase1:.1f}s | {n_persons} pessoa(s) encontrada(s)")
+
+            # Garantir que barra chegue a 100% ANTES de resetar para a fase 2
+            sse_push("progress", {"current": tracker.total_frames, "total": tracker.total_frames, "phase": 1, "video": vid_name})
+            time.sleep(0.08)  # Dar tempo ao frontend de re-renderizar o 100%
+
+            log(f"⏳ Preparando {n_persons} corte(s) — iniciando renderizacao...")
+            sse_push("progress", {"current": 0, "total": n_persons, "phase": 2, "video": vid_name})
 
             final_output_dir = (state["output_dir"] or
                                 os.path.join(os.path.dirname(video_path), "output_cortes"))

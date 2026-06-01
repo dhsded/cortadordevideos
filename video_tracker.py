@@ -410,9 +410,11 @@ class VideoTracker:
         
         # Encerrar cena se pessoa sumir por mais de 0.5s.
         max_gap = int(self.fps * 0.5)
-        # Minimo de 5 frames (~0.17s a 30fps) para evitar deteccoes de 1-2 frames.
-        # O video_cutter e responsavel por filtrar/slow-motion cenas curtas.
-        min_scene_frames = max(5, self.fps * 0.17)
+        # Minimo de 0.5s (fps*0.5) para evitar micro-deteccoes esporadicas.
+        # Clips de 0.5s a min_dur sao extendidos com slow-motion no video_cutter.
+        # Clips de 3s, 5s, etc. sao capturados normalmente (bem acima de 15 frames).
+        min_scene_frames = max(8, self.fps * 0.5)
+
         
         for person, data in self.tracking_data.items():
             if not data:

@@ -403,7 +403,9 @@ class VideoCutter:
                 base_clip_local.close()
 
         # ── Executar todas as pessoas em paralelo ────────────────────────────
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, (os.cpu_count() or 4) - 1)) as executor:
+        # Limitar a 2 workers simultaneos: cada thread abre um mp_pose.Pose
+        # (MediaPipe e pesado; muitos simultaneos causam travamento de memoria)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
             futures = [executor.submit(process_person_task, name, sc) for name, sc in scenes_dict.items()]
             concurrent.futures.wait(futures)
 
