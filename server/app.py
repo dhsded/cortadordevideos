@@ -89,46 +89,53 @@ def clear_queue():
     return jsonify({"queue": []})
 
 # ── File dialogs via PowerShell (funciona de qualquer thread) ────────────────
+def _run_ps(script: str):
+    """Executa script PowerShell e retorna stdout."""
+    try:
+        r = subprocess.run(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+            capture_output=True, text=True, timeout=120
+        )
+        return r.stdout.strip()
+    except Exception as e:
+        sse_push("log", {"text": f"Erro PowerShell: {e}"})
+        return ""
+
+# Script helper: cria um Form TopMost invisivel como owner para forcar
+# o dialogo a aparecer na frente da janela do app
+_PS_OWNER = (
+    "Add-Type -AssemblyName System.Windows.Forms;"
+    "$owner = New-Object System.Windows.Forms.Form;"
+    "$owner.TopMost = $true;"
+    "$owner.StartPosition = 'CenterScreen';"
+    "$owner.Size = New-Object System.Drawing.Size(1,1);"
+    "$owner.Show();"
+    "$owner.Hide();"
+)
+
 def _ps_open_files():
-    """Abre o dialogo de selecao de arquivos via PowerShell."""
     script = (
-        "Add-Type -AssemblyName System.Windows.Forms;"
+        _PS_OWNER +
         "$d = New-Object System.Windows.Forms.OpenFileDialog;"
         "$d.Multiselect = $true;"
         "$d.Title = 'Selecione videos para a fila';"
         "$d.Filter = 'Arquivos de Video|*.mp4;*.avi;*.mov;*.mkv;*.MP4;*.AVI;*.MOV;*.MKV';"
-        "if ($d.ShowDialog() -eq 'OK') { $d.FileNames -join '|' }"
+        "if ($d.ShowDialog($owner) -eq 'OK') { $d.FileNames -join '|' };"
+        "$owner.Dispose();"
     )
-    try:
-        r = subprocess.run(
-            ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
-            capture_output=True, text=True, timeout=120
-        )
-        output = r.stdout.strip()
-        if output:
-            return [p for p in output.split('|') if p.strip()]
-    except Exception as e:
-        sse_push("log", {"text": f"Erro no dialogo de arquivos: {e}"})
-    return []
+    output = _run_ps(script)
+    return [p for p in output.split('|') if p.strip()] if output else []
 
 def _ps_open_folder():
-    """Abre o dialogo de selecao de pasta via PowerShell."""
     script = (
-        "Add-Type -AssemblyName System.Windows.Forms;"
+        _PS_OWNER +
         "$d = New-Object System.Windows.Forms.FolderBrowserDialog;"
         "$d.Description = 'Selecione a pasta de saida';"
         "$d.ShowNewFolderButton = $true;"
-        "if ($d.ShowDialog() -eq 'OK') { $d.SelectedPath }"
+        "if ($d.ShowDialog($owner) -eq 'OK') { $d.SelectedPath };"
+        "$owner.Dispose();"
     )
-    try:
-        r = subprocess.run(
-            ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
-            capture_output=True, text=True, timeout=120
-        )
-        return r.stdout.strip() or None
-    except Exception as e:
-        sse_push("log", {"text": f"Erro no dialogo de pasta: {e}"})
-    return None
+    return _run_ps(script) or None
 
 @app.route("/api/dialog/videos", methods=["POST"])
 def dialog_videos():
