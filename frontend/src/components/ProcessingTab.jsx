@@ -17,7 +17,7 @@ function ProgressBar({ value, max, color = 'bg-accent' }) {
   )
 }
 
-export default function ProcessingTab({ processing, progress, queueProgress, logs, persons }) {
+export default function ProcessingTab({ processing, progress, queueProgress, logs, persons, previewFrame }) {
   const logRef = useRef(null)
 
   useEffect(() => {
@@ -86,6 +86,22 @@ export default function ProcessingTab({ processing, progress, queueProgress, log
           </div>
         )}
       </div>
+
+      {/* Preview do vídeo */}
+      {previewFrame && (
+        <div className="card overflow-hidden relative">
+          <img
+            src={previewFrame}
+            alt="Preview"
+            className="w-full object-contain max-h-52"
+            style={{ imageRendering: 'crisp-edges' }}
+          />
+          <div className="absolute top-2 right-2 flex items-center gap-1.5 bg-black/60 rounded-full px-2.5 py-1">
+            <div className="w-1.5 h-1.5 rounded-full bg-danger animate-pulse" />
+            <span className="text-[10px] text-white font-semibold">AO VIVO</span>
+          </div>
+        </div>
+      )}
 
       {/* Log console */}
       <div className="card flex flex-col flex-1 min-h-0 overflow-hidden">

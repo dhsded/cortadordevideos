@@ -15,17 +15,18 @@ app = Flask(__name__, static_folder=FRONTEND_DIST, static_url_path="")
 
 # ── Estado global do app ─────────────────────────────────────────────────────
 state = {
-    "video_queue":   [],          # list of absolute paths
+    "video_queue":   [],
     "output_dir":    None,
     "settings": {
-        "mode":      "Ambos",
-        "duration":  "50",
-        "min_dur":   "8",
-        "photos":    "5",
-        "quality":   "Boa",
-        "hw":        "CPU",
-        "sound":     "Soft Bell",
-        "precision": "Alta (a cada 5 frames)",
+        "mode":         "Ambos",
+        "duration":     "50",
+        "min_dur":      "8",
+        "photos":       "5",
+        "quality":      "Boa",
+        "hw":           "CPU",
+        "sound":        "Soft Bell",
+        "precision":    "Alta (a cada 5 frames)",
+        "preview_mode": "Metade",
     },
     "processing":    False,
     "cancel_event":  threading.Event(),
@@ -227,6 +228,29 @@ def _run_pipeline():
                 sse_push("progress", {"current": current, "total": total_f,
                                        "phase": 1, "video": vid_name})
 
+            # Frame callback: codifica o frame em JPEG base64 e envia via SSE
+            preview_mode = s.get("preview_mode", "Desligado")
+            def make_frame_callback(pmode):
+                def _cb(rgb_frame):
+                    try:
+                        import base64
+                        from PIL import Image
+                        import io
+                        img = Image.fromarray(rgb_frame)
+                        # Reduzir para 640px de largura para SSE ser leve
+                        if img.width > 640:
+                            ratio = 640 / img.width
+                            img = img.resize((640, int(img.height * ratio)), Image.LANCZOS)
+                        buf = io.BytesIO()
+                        img.save(buf, "JPEG", quality=70)
+                        b64 = base64.b64encode(buf.getvalue()).decode()
+                        sse_push("frame", {"data": b64})
+                    except Exception:
+                        pass
+                return _cb if pmode != "Desligado" else None
+
+            frame_cb = make_frame_callback(preview_mode)
+
             def new_person_cb(name, face_rgb):
                 import base64
                 from PIL import Image
@@ -244,9 +268,9 @@ def _run_pipeline():
             tracker = VideoTracker(video_path, sample_rate=sample_rate)
             t0 = time.time()
             scenes, final_faces_rgb = tracker.process_video(
-                preview_mode="Metade",
+                preview_mode=preview_mode,
                 progress_callback=track_progress,
-                frame_callback=None,  # sem preview por ora (heavy)
+                frame_callback=frame_cb,
                 new_person_callback=new_person_cb,
                 cancel_event=state["cancel_event"],
                 log_callback=log,

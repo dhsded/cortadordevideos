@@ -305,7 +305,11 @@ class VideoTracker:
                         _log(f"Fase 1: {pct}% analisado ({frame_idx}/{self.total_frames} frames) | {pessoas} pessoa(s) encontrada(s) ate agora")
                     
         fvs.stop()
-        
+
+        # Garantir que a barra chegue a 100% ao finalizar
+        if progress_callback:
+            progress_callback(self.total_frames, self.total_frames)
+
         # POS-PROCESSAMENTO: Fusao Global
         _log("Fase 1: Rastreamento concluido! Iniciando fusao de identidades (pode demorar)...")
         self._merge_identities(log_callback=log_callback)

@@ -22,6 +22,7 @@ export default function App() {
   const [progress, setProgress]       = useState({ current: 0, total: 100, phase: 1 })
   const [queueProgress, setQueueProgress] = useState({ done: 0, total: 0 })
   const [videoStatuses, setVideoStatuses] = useState({})
+  const [previewFrame, setPreviewFrame]   = useState(null)
 
   const appendLog = useCallback((text) => {
     const ts = new Date().toLocaleTimeString('pt-BR', { hour12: false })
@@ -31,12 +32,13 @@ export default function App() {
   // ── SSE listener ──────────────────────────────────────────────────────────
   useSSE('/api/stream', {
     log:            (d) => appendLog(d.text),
-    started:        (d) => { setProcessing(true); setQueueProgress({ done: 0, total: d.total }); setPersons([]); setLogs([]) },
+    started:        (d) => { setProcessing(true); setQueueProgress({ done: 0, total: d.total }); setPersons([]); setLogs([]); setPreviewFrame(null) },
     progress:       (d) => setProgress(d),
     queue_progress: (d) => setQueueProgress(d),
     new_person:     (d) => setPersons(prev => [...prev, d]),
     video_start:    (d) => appendLog(`▶ ${d.name} (${d.index + 1}/${d.total})`),
     video_status:   (d) => setVideoStatuses(prev => ({ ...prev, [d.path]: d.status })),
+    frame:          (d) => setPreviewFrame(`data:image/jpeg;base64,${d.data}`),
     done:           (d) => { setProcessing(false); setStats(d); setActiveTab('report') },
     error:          (d) => { setProcessing(false); appendLog(`❌ ${d.message}`) },
   })
@@ -80,6 +82,7 @@ export default function App() {
               queueProgress={queueProgress}
               logs={logs}
               persons={persons}
+              previewFrame={previewFrame}
             />
           )}
           {activeTab === 'report' && <ReportTab stats={stats} />}
