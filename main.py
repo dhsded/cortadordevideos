@@ -3,7 +3,7 @@ import os
 import sys
 import threading
 import time
-import subprocess
+import webbrowser
 
 def resource_path(relative_path):
     try:
@@ -14,24 +14,41 @@ def resource_path(relative_path):
 
 def start_flask():
     """Inicia o servidor Flask em uma thread separada."""
-    # Adicionar o diretório raiz ao path para importações
-    root = os.path.dirname(os.path.abspath(__file__))
+    root = resource_path(".")
     sys.path.insert(0, root)
-    
-    # Importar e iniciar o Flask
-    from server.app import app
-    app.run(port=5000, debug=False, threaded=True, use_reloader=False)
 
-def wait_for_server(port=5000, timeout=15):
-    """Aguarda o Flask iniciar antes de abrir o PyWebView."""
+    # Redirecionar stderr para um arquivo de log para capturar erros
+    log_path = os.path.join(os.path.dirname(sys.executable
+                            if getattr(sys, 'frozen', False) else __file__),
+                            "autocutter_log.txt")
+    try:
+        import logging
+        log = logging.getLogger('werkzeug')
+        log.setLevel(logging.ERROR)  # Suprimir logs verbosos do Flask
+
+        # Adicionar o diretório _MEIPASS ao sys.path para o server encontrar os módulos
+        meipass = resource_path(".")
+        if meipass not in sys.path:
+            sys.path.insert(0, meipass)
+
+        from server.app import app
+        app.run(host="127.0.0.1", port=5000, debug=False,
+                threaded=True, use_reloader=False)
+    except Exception as e:
+        with open(log_path, "a", encoding="utf-8") as f:
+            import traceback
+            f.write(f"\n[{time.strftime('%H:%M:%S')}] Erro Flask:\n{traceback.format_exc()}\n")
+
+def wait_for_server(port=5000, timeout=20):
+    """Aguarda o Flask iniciar antes de abrir o navegador."""
     import urllib.request
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
-            urllib.request.urlopen(f"http://localhost:{port}/")
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=1)
             return True
         except Exception:
-            time.sleep(0.2)
+            time.sleep(0.3)
     return False
 
 if __name__ == "__main__":
@@ -41,24 +58,19 @@ if __name__ == "__main__":
     flask_thread = threading.Thread(target=start_flask, daemon=True)
     flask_thread.start()
 
-    # Aguardar servidor
-    print("Iniciando servidor...")
+    # Aguardar servidor estar pronto
     ready = wait_for_server()
-    if not ready:
-        print("Erro: servidor não iniciou a tempo.")
-        sys.exit(1)
 
-    print("Servidor pronto. Abrindo interface...")
+    if ready:
+        # Abrir no navegador padrão
+        webbrowser.open("http://127.0.0.1:5000")
+    else:
+        # Tentar mesmo assim
+        webbrowser.open("http://127.0.0.1:5000")
 
-    # Abrir janela PyWebView
-    import webview
-    webview.create_window(
-        title="Auto-Cutter Pro",
-        url="http://localhost:5000",
-        width=1280,
-        height=800,
-        min_size=(900, 600),
-        background_color="#0A0A0F",
-        frameless=False,
-    )
-    webview.start(debug=False)
+    # Manter o processo vivo enquanto o usuário usa o app
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        pass
