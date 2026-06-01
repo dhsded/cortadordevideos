@@ -3,7 +3,7 @@ import os
 import sys
 import threading
 import time
-import webbrowser
+import subprocess
 
 def resource_path(relative_path):
     try:
@@ -14,19 +14,14 @@ def resource_path(relative_path):
 
 def start_flask():
     """Inicia o servidor Flask em uma thread separada."""
-    root = resource_path(".")
-    sys.path.insert(0, root)
-
-    # Redirecionar stderr para um arquivo de log para capturar erros
-    log_path = os.path.join(os.path.dirname(sys.executable
-                            if getattr(sys, 'frozen', False) else __file__),
-                            "autocutter_log.txt")
+    log_path = os.path.join(
+        os.path.dirname(sys.executable if getattr(sys, 'frozen', False) else __file__),
+        "autocutter_log.txt"
+    )
     try:
         import logging
-        log = logging.getLogger('werkzeug')
-        log.setLevel(logging.ERROR)  # Suprimir logs verbosos do Flask
+        logging.getLogger('werkzeug').setLevel(logging.ERROR)
 
-        # Adicionar o diretório _MEIPASS ao sys.path para o server encontrar os módulos
         meipass = resource_path(".")
         if meipass not in sys.path:
             sys.path.insert(0, meipass)
@@ -34,13 +29,12 @@ def start_flask():
         from server.app import app
         app.run(host="127.0.0.1", port=5000, debug=False,
                 threaded=True, use_reloader=False)
-    except Exception as e:
+    except Exception:
+        import traceback
         with open(log_path, "a", encoding="utf-8") as f:
-            import traceback
             f.write(f"\n[{time.strftime('%H:%M:%S')}] Erro Flask:\n{traceback.format_exc()}\n")
 
 def wait_for_server(port=5000, timeout=20):
-    """Aguarda o Flask iniciar antes de abrir o navegador."""
     import urllib.request
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -51,22 +45,48 @@ def wait_for_server(port=5000, timeout=20):
             time.sleep(0.3)
     return False
 
+def open_app_window(url: str):
+    """
+    Abre o app em modo desktop (sem barra de endereço/abas) usando
+    Edge ou Chrome com flag --app. Fallback para webbrowser se nenhum for encontrado.
+    """
+    BROWSER_PATHS = [
+        # Microsoft Edge (pré-instalado no Windows 10/11)
+        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+        r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+        # Google Chrome
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        # Brave
+        r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe",
+    ]
+
+    for path in BROWSER_PATHS:
+        if os.path.exists(path):
+            subprocess.Popen([
+                path,
+                f"--app={url}",
+                "--window-size=1280,800",
+                "--disable-extensions",
+                "--no-first-run",
+                "--no-default-browser-check",
+            ])
+            return True
+
+    # Último recurso: navegador padrão
+    import webbrowser
+    webbrowser.open(url)
+    return False
+
 if __name__ == "__main__":
     multiprocessing.freeze_support()
 
-    # Iniciar Flask em background
     flask_thread = threading.Thread(target=start_flask, daemon=True)
     flask_thread.start()
 
-    # Aguardar servidor estar pronto
     ready = wait_for_server()
 
-    if ready:
-        # Abrir no navegador padrão
-        webbrowser.open("http://127.0.0.1:5000")
-    else:
-        # Tentar mesmo assim
-        webbrowser.open("http://127.0.0.1:5000")
+    open_app_window("http://127.0.0.1:5000")
 
     # Manter o processo vivo enquanto o usuário usa o app
     try:
