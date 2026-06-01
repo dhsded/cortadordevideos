@@ -12,6 +12,20 @@ class FileVideoStream:
         self.stream = cv2.VideoCapture(path)
         self.stopped = False
         self.Q = Queue(maxsize=queue_size)
+
+        # Detectar rotação do vídeo (vídeos gravados em portrait no celular)
+        # 99 = cv2.CAP_PROP_ORIENTATION_META (OpenCV 4.5.4+)
+        self._rotate_code = None
+        try:
+            rot = int(self.stream.get(99))
+            if rot == 90:
+                self._rotate_code = cv2.ROTATE_90_CLOCKWISE
+            elif rot == 180:
+                self._rotate_code = cv2.ROTATE_180
+            elif rot in [270, -90]:
+                self._rotate_code = cv2.ROTATE_90_COUNTERCLOCKWISE
+        except Exception:
+            pass
         
     def start(self):
         t = threading.Thread(target=self.update, args=())
@@ -29,9 +43,11 @@ class FileVideoStream:
                     if not ret:
                         self.stop()
                         return
+                    # Corrigir orientação se o vídeo estiver rotacionado
+                    if self._rotate_code is not None:
+                        frame = cv2.rotate(frame, self._rotate_code)
                     self.Q.put(frame)
                 except Exception:
-                    # Frame corrompido ou erro de codec — ignorar e continuar
                     import time
                     time.sleep(0.01)
                     continue
@@ -73,8 +89,15 @@ class VideoTracker:
         self.cap = cv2.VideoCapture(video_path)
         self.fps = self.cap.get(cv2.CAP_PROP_FPS)
         self.total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        self.width  = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        # Se o vídeo estiver rotacionado 90°/270°, largura e altura ficam trocadas
+        try:
+            rot = int(self.cap.get(99))  # CAP_PROP_ORIENTATION_META
+            if rot in [90, 270]:
+                self.width, self.height = self.height, self.width
+        except Exception:
+            pass
         self.cap.release()
 
     def _calculate_iou(self, boxA, boxB):
@@ -336,44 +359,45 @@ class VideoTracker:
             person_frames[name] = set([item[0] for item in self.tracking_data[name]])
             
         merged = set()
-        merges = [] # (to_keep, to_merge)
-        
+        merges = []
+
         for i in range(len(all_names)):
             name_a = all_names[i]
             if name_a in merged:
                 continue
-                
+
+            if i % 3 == 0:
+                _log(f"Fusao: analisando identidade {i+1}/{len(all_names)}...")
+
             for j in range(i + 1, len(all_names)):
                 name_b = all_names[j]
                 if name_b in merged:
                     continue
-                    
-                # Checagem de Exclusão Temporal
-                # Se a interseção for vazia, eles NUNCA apareceram juntos.
+
                 if not person_frames[name_a].intersection(person_frames[name_b]):
-                    # Nunca juntos. Vamos comparar a biometria dos dois globalmente.
                     encodings_a = self.person_encodings.get(name_a, [])
                     encodings_b = self.person_encodings.get(name_b, [])
-                    
+
                     if not encodings_a or not encodings_b:
                         continue
-                        
-                    # Checar distância mínima entre todos os perfis das duas pessoas
+
+                    # Limitar a 50 encodings por pessoa para evitar lentidão
+                    sample_a = encodings_a[-50:]
+                    sample_b = encodings_b[-50:]
+
                     min_distance = 1.0
-                    for ea in encodings_a:
-                        dists = face_recognition.face_distance(encodings_b, ea)
+                    for ea in sample_a:
+                        dists = face_recognition.face_distance(sample_b, ea)
                         if len(dists) > 0:
-                            min_dist = np.min(dists)
-                            if min_dist < min_distance:
-                                min_distance = min_dist
-                                
-                    # Régua extrema (0.75) porque sabemos que eles nunca estiveram juntos!
+                            d = np.min(dists)
+                            if d < min_distance:
+                                min_distance = d
+
                     if min_distance < 0.75:
                         merges.append((name_a, name_b))
                         merged.add(name_b)
                         person_frames[name_a].update(person_frames[name_b])
-                        
-        # Efetivar a fusão silenciosa (O Cortador nunca saberá que Pessoa B existiu)
+
         for to_keep, to_merge in merges:
             self.tracking_data[to_keep].extend(self.tracking_data[to_merge])
             del self.tracking_data[to_merge]
