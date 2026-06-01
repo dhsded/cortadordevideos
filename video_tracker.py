@@ -34,11 +34,11 @@ class FileVideoStream:
         return self
         
     def update(self):
-        while True:
-            if self.stopped:
-                return
-            if not self.Q.full():
-                try:
+        try:
+            while True:
+                if self.stopped:
+                    return
+                if not self.Q.full():
                     ret, frame = self.stream.read()
                     if not ret:
                         self.stop()
@@ -47,23 +47,30 @@ class FileVideoStream:
                     if self._rotate_code is not None:
                         frame = cv2.rotate(frame, self._rotate_code)
                     self.Q.put(frame)
-                except Exception:
+                else:
                     import time
                     time.sleep(0.01)
-                    continue
-            else:
-                import time
-                time.sleep(0.01)
+        except Exception:
+            self.stop()
                 
     def read(self):
-        return self.Q.get()
+        while not self.stopped or not self.Q.empty():
+            try:
+                return self.Q.get(timeout=0.1)
+            except Exception:
+                if self.stopped:
+                    return None
+        return None
         
     def more(self):
-        return self.Q.qsize() > 0 or not self.stopped
+        return not self.stopped or not self.Q.empty()
         
     def stop(self):
         self.stopped = True
-        self.stream.release()
+        try:
+            self.stream.release()
+        except Exception:
+            pass
 
 class VideoTracker:
     def __init__(self, video_path, sample_rate=1, tolerance=0.55):
@@ -331,12 +338,12 @@ class VideoTracker:
 
         # POS-PROCESSAMENTO: Fusao Global
         _log("Fase 1: Rastreamento concluido! Iniciando fusao de identidades (pode demorar)...")
-        self._merge_identities(log_callback=log_callback)
+        self._merge_identities(log_callback=log_callback, cancel_event=cancel_event)
         _log(f"Fase 1: Fusao concluida! {len(self.tracking_data)} identidade(s) final(is).")
         
         return self._generate_scenes(), self.person_faces_rgb
         
-    def _merge_identities(self, log_callback=None):
+    def _merge_identities(self, log_callback=None, cancel_event=None):
         """
         Análise global post-mortem. Fusão por Exclusão Temporal.
         """
@@ -357,7 +364,17 @@ class VideoTracker:
         merged = set()
         merges = []
 
+        import time as pytime
+        start_merge_time = pytime.time()
+
         for i in range(len(all_names)):
+            if cancel_event and cancel_event.is_set():
+                _log("Fusao: Cancelado pelo usuario.")
+                break
+            if pytime.time() - start_merge_time > 60.0:
+                _log("Fusao: Tempo limite excedido (60s). Pulando o restante da fusao para evitar travamentos.")
+                break
+
             name_a = all_names[i]
             if name_a in merged:
                 continue
@@ -366,6 +383,11 @@ class VideoTracker:
                 _log(f"Fusao: analisando identidade {i+1}/{len(all_names)}...")
 
             for j in range(i + 1, len(all_names)):
+                if cancel_event and cancel_event.is_set():
+                    break
+                if pytime.time() - start_merge_time > 60.0:
+                    break
+
                 name_b = all_names[j]
                 if name_b in merged:
                     continue
